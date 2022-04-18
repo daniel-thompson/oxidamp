@@ -62,7 +62,7 @@ struct BiquadDesign {
 }
 
 impl BiquadDesign {
-    fn new(sfreq: i32, freq: i32, dbgain: i32, q: f64) -> Self {
+    fn new(sfreq: i32, freq: i32, dbgain: f64, q: f64) -> Self {
         let mut design: BiquadDesign = Default::default();
 
         /* HACK: Many of the filters are numerically unstable when designed
@@ -76,7 +76,7 @@ impl BiquadDesign {
         //}
 
         let base: f64 = 10.0;
-        let gain = (dbgain as f64) / 20.0;
+        let gain = dbgain / 20.0;
 
         design.big_a = base.powf(gain).sqrt();
         design.big_g = base.powf(gain / 2.0);
@@ -107,7 +107,7 @@ impl BiquadDesign {
 
 impl Biquad {
     pub fn lowpass(&mut self, ctx: &AudioContext, shfreq: i32, q: f64) {
-        let mut design = BiquadDesign::new(ctx.sampling_frequency, shfreq, 0, q);
+        let mut design = BiquadDesign::new(ctx.sampling_frequency, shfreq, 0.0, q);
 
         design.b[0] = (1.0 - design.cosw0) / 2.0;
         design.b[1] = 1.0 - design.cosw0;
@@ -121,7 +121,7 @@ impl Biquad {
     }
 
     pub fn highpass(&mut self, ctx: &AudioContext, shfreq: i32, q: f64) {
-        let mut design = BiquadDesign::new(ctx.sampling_frequency, shfreq, 0, q);
+        let mut design = BiquadDesign::new(ctx.sampling_frequency, shfreq, 0.0, q);
 
         design.b[0] = (1.0 + design.cosw0) / 2.0;
         design.b[1] = -(1.0 + design.cosw0);
@@ -135,7 +135,7 @@ impl Biquad {
     }
 
     pub fn bandpass(&mut self, ctx: &AudioContext, cfreq: i32, q: f64) {
-        let mut design = BiquadDesign::new(ctx.sampling_frequency, cfreq, 0, q);
+        let mut design = BiquadDesign::new(ctx.sampling_frequency, cfreq, 0.0, q);
 
         design.b[0] = design.alpha;
         design.b[1] = 0.0;
@@ -149,7 +149,7 @@ impl Biquad {
     }
 
     pub fn bandstop(&mut self, ctx: &AudioContext, cfreq: i32, q: f64) {
-        let mut design = BiquadDesign::new(ctx.sampling_frequency, cfreq, 0, q);
+        let mut design = BiquadDesign::new(ctx.sampling_frequency, cfreq, 0.0, q);
 
         design.b[0] = 1.0;
         design.b[1] = -2.0 * design.cosw0;
@@ -158,6 +158,74 @@ impl Biquad {
         design.a[0] = 1.0 + design.alpha;
         design.a[1] = -2.0 * design.cosw0;
         design.a[2] = 1.0 - design.alpha;
+
+        self.coeff = design.apply();
+    }
+
+    pub fn allpass(&mut self, ctx: &AudioContext, csfreq: i32, q: f64) {
+        let mut design = BiquadDesign::new(ctx.sampling_frequency, csfreq, 0.0, q);
+
+        design.b[0] = 1.0 - design.alpha;
+        design.b[1] = -2.0 * design.cosw0;
+        design.b[2] = 1.0 + design.alpha;
+
+        design.a[0] = design.b[2];
+        design.a[1] = design.b[1];
+        design.a[2] = design.b[0];
+
+        self.coeff = design.apply();
+    }
+
+    pub fn peakingeq(&mut self, ctx: &AudioContext, cfreq: i32, dbgain: f64, q: f64) {
+        let mut design = BiquadDesign::new(ctx.sampling_frequency, cfreq, dbgain, q);
+
+        design.b[0] = 1.0 + (design.alpha * design.big_a);
+        design.b[1] = -2.0 * design.cosw0;
+        design.b[2] = 1.0 - (design.alpha * design.big_a);
+
+        design.a[0] = 1.0 + (design.alpha / design.big_a);
+        design.a[1] = -2.0 * design.cosw0;
+        design.a[2] = 1.0 - (design.alpha / design.big_a);
+
+        self.coeff = design.apply();
+    }
+
+    pub fn lowshelf(&mut self, ctx: &AudioContext, shfreq: i32, dbgain: f64, q: f64) {
+        let mut design = BiquadDesign::new(ctx.sampling_frequency, shfreq, dbgain, q);
+
+        let plus_minus_minus = (design.big_a + 1.0) - ((design.big_a - 1.0) * design.cosw0);
+        let minus_minus_plus = (design.big_a - 1.0) - ((design.big_a + 1.0) * design.cosw0);
+        let plus_plus_minus = (design.big_a + 1.0) + ((design.big_a - 1.0) * design.cosw0);
+        let minus_plus_plus = (design.big_a - 1.0) + ((design.big_a + 1.0) * design.cosw0);
+        let two_roota_alpha = 2.0 * design.big_a.sqrt() * design.alpha;
+
+        design.b[0] = design.big_a * (plus_minus_minus + two_roota_alpha);
+        design.b[1] = 2.0 * design.big_a * minus_minus_plus;
+        design.b[2] = design.big_a * (plus_minus_minus - two_roota_alpha);
+
+        design.a[0] = plus_plus_minus + two_roota_alpha;
+        design.a[1] = -2.0 * minus_plus_plus;
+        design.a[2] = plus_plus_minus - two_roota_alpha;
+
+        self.coeff = design.apply();
+    }
+
+    pub fn highshelf(&mut self, ctx: &AudioContext, shfreq: i32, dbgain: f64, q: f64) {
+        let mut design = BiquadDesign::new(ctx.sampling_frequency, shfreq, dbgain, q);
+
+        let plus_plus_minus = (design.big_a + 1.0) + ((design.big_a - 1.0) * design.cosw0);
+        let minus_plus_plus = (design.big_a - 1.0) + ((design.big_a + 1.0) * design.cosw0);
+        let plus_minus_minus = (design.big_a + 1.0) - ((design.big_a - 1.0) * design.cosw0);
+        let minus_minus_plus = (design.big_a - 1.0) - ((design.big_a + 1.0) * design.cosw0);
+        let two_roota_alpha = 2.0 * design.big_a.sqrt() * design.alpha;
+
+        design.b[0] = design.big_a * (plus_plus_minus + two_roota_alpha);
+        design.b[1] = -2.0 * design.big_a * minus_plus_plus;
+        design.b[2] = design.big_a * (plus_plus_minus - two_roota_alpha);
+
+        design.a[0] = plus_minus_minus + two_roota_alpha;
+        design.a[1] = 2.0 * minus_minus_plus;
+        design.a[2] = plus_minus_minus - two_roota_alpha;
 
         self.coeff = design.apply();
     }
@@ -180,8 +248,7 @@ mod tests {
 
         // stimulate the filter
         for _ in 0..10 {
-            for it in zip(&mut inbuf, &mut outbuf) {
-                let (inspl, outspl) = it;
+            for (inspl, outspl) in zip(&mut inbuf, &mut outbuf) {
                 *inspl = sg.sin();
                 *outspl = bq.step(*inspl);
             }
@@ -264,9 +331,11 @@ mod tests {
         let ctx = AudioContext::new(48000);
         let mut bq = Biquad::default();
         bq.bandpass(&ctx, 1000, 0.7);
-        assert!(check_response(&ctx, &mut bq, 1000, 0.0));
+        assert!(check_response(&ctx, &mut bq, 250, -9.0));
         assert!(check_response(&ctx, &mut bq, 500, -3.0));
+        assert!(check_response(&ctx, &mut bq, 1000, 0.0));
         assert!(check_response(&ctx, &mut bq, 2000, -3.0));
+        assert!(check_response(&ctx, &mut bq, 4000, -9.0));
     }
 
     #[test]
@@ -274,8 +343,79 @@ mod tests {
         let ctx = AudioContext::new(48000);
         let mut bq = Biquad::default();
         bq.bandstop(&ctx, 1000, 0.7);
-        assert!(check_response(&ctx, &mut bq, 1000, -96.0));
+        assert!(check_response(&ctx, &mut bq, 125, 0.0));
         assert!(check_response(&ctx, &mut bq, 500, -3.0));
+        assert!(check_response(&ctx, &mut bq, 1000, -96.0));
         assert!(check_response(&ctx, &mut bq, 2000, -3.0));
+        assert!(check_response(&ctx, &mut bq, 8000, 0.0));
+    }
+
+    #[test]
+    fn test_allpass_response() {
+        let ctx = AudioContext::new(48000);
+        let mut bq = Biquad::default();
+        bq.allpass(&ctx, 400, 0.7);
+        let mut f = 200;
+        while f < 10000 {
+            assert!(check_response(&ctx, &mut bq, f, 0.0));
+            f *= 2;
+        }
+    }
+
+    #[test]
+    fn test_peakingeq_response() {
+        let ctx = AudioContext::new(48000);
+        let mut bq = Biquad::default();
+        bq.peakingeq(&ctx, 400, -16.0, 8.0);
+        assert!(check_response(&ctx, &mut bq, 100, 0.0));
+        assert!(check_response(&ctx, &mut bq, 200, 0.0));
+        assert!(check_response(&ctx, &mut bq, 400, -16.0));
+        assert!(check_response(&ctx, &mut bq, 800, 0.0));
+        assert!(check_response(&ctx, &mut bq, 1600, 0.0));
+    }
+
+    #[test]
+    fn test_peakingeq_boost() {
+        let ctx = AudioContext::new(48000);
+        let mut bq = Biquad::default();
+        bq.peakingeq(&ctx, 400, 6.0, 2.0);
+        assert!(check_response(&ctx, &mut bq, 400, 6.0));
+        assert!(check_response(&ctx, &mut bq, 1600, 0.0));
+    }
+
+    #[test]
+    fn test_highshelf_response() {
+        let ctx = AudioContext::new(48000);
+        let mut bq = Biquad::default();
+        bq.highshelf(&ctx, 750, -6.0, 0.7);
+        assert!(check_response(&ctx, &mut bq, 300, 0.0));
+        assert!(check_response(&ctx, &mut bq, 2000, -6.0));
+    }
+
+    #[test]
+    fn test_highboost_response() {
+        let ctx = AudioContext::new(48000);
+        let mut bq = Biquad::default();
+        bq.highshelf(&ctx, 750, 6.0, 0.7);
+        assert!(check_response(&ctx, &mut bq, 300, 0.0));
+        assert!(check_response(&ctx, &mut bq, 2000, 6.0));
+    }
+
+    #[test]
+    fn test_lowshelf_response() {
+        let ctx = AudioContext::new(48000);
+        let mut bq = Biquad::default();
+        bq.lowshelf(&ctx, 750, -6.0, 0.7);
+        assert!(check_response(&ctx, &mut bq, 300, -6.0));
+        assert!(check_response(&ctx, &mut bq, 2000, 0.0));
+    }
+
+    #[test]
+    fn test_lowboost_response() {
+        let ctx = AudioContext::new(48000);
+        let mut bq = Biquad::default();
+        bq.lowshelf(&ctx, 750, 6.0, 0.7);
+        assert!(check_response(&ctx, &mut bq, 300, 6.0));
+        assert!(check_response(&ctx, &mut bq, 2000, 0.0));
     }
 }
