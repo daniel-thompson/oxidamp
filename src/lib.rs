@@ -2,6 +2,7 @@
 // Copyright (C) 2022 Daniel Thompson
 
 pub mod biquad;
+pub mod cabsim;
 pub mod dcblocker;
 pub mod firstorder;
 pub mod sbuf;
@@ -9,6 +10,7 @@ pub mod siggen;
 pub mod util;
 
 pub use biquad::*;
+pub use cabsim::*;
 pub use dcblocker::*;
 pub use firstorder::*;
 pub use sbuf::*;
