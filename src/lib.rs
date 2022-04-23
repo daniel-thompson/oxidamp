@@ -4,6 +4,7 @@
 pub mod biquad;
 pub mod cabsim;
 pub mod dcblocker;
+pub mod delay;
 pub mod firstorder;
 pub mod sbuf;
 pub mod siggen;
@@ -12,6 +13,7 @@ pub mod util;
 pub use biquad::*;
 pub use cabsim::*;
 pub use dcblocker::*;
+pub use delay::*;
 pub use firstorder::*;
 pub use sbuf::*;
 pub use siggen::*;
