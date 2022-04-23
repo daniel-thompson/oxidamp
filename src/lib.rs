@@ -9,6 +9,7 @@ pub mod firstorder;
 pub mod sbuf;
 pub mod siggen;
 pub mod util;
+pub mod waveshaper;
 
 pub use biquad::*;
 pub use cabsim::*;
@@ -18,3 +19,4 @@ pub use firstorder::*;
 pub use sbuf::*;
 pub use siggen::*;
 pub use util::*;
+pub use waveshaper::*;
