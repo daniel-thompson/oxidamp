@@ -38,6 +38,15 @@ impl SampleBuffer {
     }
 }
 
+pub trait SignalGenerator {
+    fn step(&mut self) -> f32;
+    fn process(&mut self, samples: &mut [f32]) {
+        for spl in samples {
+            *spl = self.step();
+        }
+    }
+}
+
 pub trait SampleBufferExt {
     fn analyse_peak(&self) -> f32;
     fn analyse_rectify(&self) -> f32;
