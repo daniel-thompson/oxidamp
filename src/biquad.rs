@@ -22,8 +22,8 @@ pub struct Biquad {
     zi: usize,
 }
 
-impl Biquad {
-    pub fn step(&mut self, x: f32) -> f32 {
+impl Filter for Biquad {
+    fn step(&mut self, x: f32) -> f32 {
         let nextzi = (self.zi == 0) as usize;
 
         let mut y = self.coeff.x[0] * x;
@@ -39,9 +39,7 @@ impl Biquad {
         y
     }
 
-    // TODO: can we macro the process method?
-
-    pub fn flush(&mut self) {
+    fn flush(&mut self) {
         self.zx = [0.0; 2];
         self.zy = [0.0; 2];
     }
@@ -234,68 +232,6 @@ impl Biquad {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sbuf::SampleBufferExt;
-    use crate::siggen::SignalGenerator;
-    use crate::util::*;
-    use std::iter::zip;
-
-    fn stimulate(ctx: &AudioContext, bq: &mut Biquad, gfreq: i32) -> f32 {
-        let mut inbuf = [0.0_f32; 1024];
-        let mut outbuf = [0.0_f32; 1024];
-        let mut sg = SignalGenerator::default();
-
-        sg.setup(&ctx, gfreq, 1.570793);
-
-        // stimulate the filter
-        for _ in 0..10 {
-            for (inspl, outspl) in zip(&mut inbuf, &mut outbuf) {
-                *inspl = sg.sin();
-                *outspl = bq.step(*inspl);
-            }
-        }
-
-        // check the result
-        outbuf.analyse_rectify()
-    }
-
-    fn check_response(ctx: &AudioContext, bq: &mut Biquad, gfreq: i32, db: f32) -> bool {
-        let level = stimulate(ctx, bq, gfreq);
-        let ok;
-
-        if 0.0 == db {
-            ok = fuzzcmp(level, 1.0, 1.05);
-
-            println!(
-                "    {:4}Hz@{}Hz    {:6.2} {}=   1.00              [ {} ]",
-                gfreq,
-                ctx.sampling_frequency,
-                level,
-                if ok { '~' } else { '!' },
-                if ok { " OK " } else { "FAIL" }
-            );
-        } else {
-            let dblevel = linear2db(level);
-
-            /* special case for very quiet signals */
-            if db <= -96.0 {
-                ok = dblevel <= (db + 6.0);
-            } else {
-                ok = fuzzcmp(dblevel, db, 1.1);
-            }
-
-            println!(
-                "    {:4}Hz@{}Hz    {:6.2} {}= {:6.2}dB            [ {} ]",
-                gfreq,
-                ctx.sampling_frequency,
-                dblevel,
-                if ok { '~' } else { '!' },
-                db,
-                if ok { " OK " } else { "FAIL" }
-            );
-        }
-
-        ok
-    }
 
     #[test]
     fn test_zero_step() {

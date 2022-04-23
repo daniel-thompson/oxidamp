@@ -12,12 +12,14 @@ impl DCBlocker {
     pub fn setup(&mut self, ctx: &AudioContext) {
         self.filter.highpass(ctx, 31);
     }
+}
 
-    pub fn step(&mut self, x: f32) -> f32 {
+impl Filter for DCBlocker {
+    fn step(&mut self, x: f32) -> f32 {
         self.filter.step(x)
     }
 
-    pub fn flush(&mut self) {
+    fn flush(&mut self) {
         self.filter.flush()
     }
 }
@@ -25,7 +27,6 @@ impl DCBlocker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::iter::zip;
 
     #[test]
     fn test_dc() {
@@ -50,7 +51,7 @@ mod tests {
     fn test_ac() {
         let ctx = AudioContext::new(48000);
         let mut dc = DCBlocker::default();
-        let mut sg = SignalGenerator::default();
+        let mut sg = SineGenerator::default();
         let mut inbuf = [0.0_f32; 1024];
         let mut outbuf = [0.0_f32; 1024];
 
@@ -58,11 +59,8 @@ mod tests {
         sg.setup(&ctx, 100, 1.0);
 
         for _ in 0..10 {
-            for it in zip(&mut inbuf, &mut outbuf) {
-                let (inspl, outspl) = it;
-                *inspl = sg.sin();
-                *outspl = dc.step(*inspl);
-            }
+            sg.process(&mut inbuf);
+            dc.process(&inbuf, &mut outbuf);
         }
 
         assert_fuzzeq!(inbuf.analyse_rectify(), 0.64, 1.03);

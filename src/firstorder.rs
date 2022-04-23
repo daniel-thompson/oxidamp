@@ -17,8 +17,8 @@ pub struct FirstOrder {
     zy: f32,
 }
 
-impl FirstOrder {
-    pub fn step(&mut self, x: f32) -> f32 {
+impl Filter for FirstOrder {
+    fn step(&mut self, x: f32) -> f32 {
         let mut y = self.coeff.x[0] * x;
         y += self.coeff.x[1] * self.zx;
         y += self.coeff.y * self.zy;
@@ -29,7 +29,7 @@ impl FirstOrder {
         y
     }
 
-    pub fn flush(&mut self) {
+    fn flush(&mut self) {
         self.zx = 0.0;
         self.zy = 0.0;
     }
@@ -98,66 +98,6 @@ impl FirstOrder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::iter::zip;
-
-    fn stimulate(ctx: &AudioContext, f: &mut FirstOrder, gfreq: i32) -> f32 {
-        let mut sg = SignalGenerator::default();
-        let mut inbuf = [0.0_f32; 1024];
-        let mut outbuf = [0.0_f32; 1024];
-
-        sg.setup(&ctx, gfreq, 1.570793);
-
-        // stimulate the filter
-        for _ in 0..10 {
-            for it in zip(&mut inbuf, &mut outbuf) {
-                let (inspl, outspl) = it;
-                *inspl = sg.sin();
-                *outspl = f.step(*inspl);
-            }
-        }
-
-        // check the result
-        outbuf.analyse_rectify()
-    }
-
-    fn check_response(ctx: &AudioContext, f: &mut FirstOrder, gfreq: i32, db: f32) -> bool {
-        let level = stimulate(ctx, f, gfreq);
-        let ok;
-
-        if 0.0 == db {
-            ok = fuzzcmp(level, 1.0, 1.05);
-
-            println!(
-                "    {:4}Hz@{}Hz    {:6.2} {}=   1.00              [ {} ]",
-                gfreq,
-                ctx.sampling_frequency,
-                level,
-                if ok { '~' } else { '!' },
-                if ok { " OK " } else { "FAIL" }
-            );
-        } else {
-            let dblevel = linear2db(level);
-
-            /* special case for very quiet signals */
-            if db <= -96.0 {
-                ok = dblevel <= (db + 6.0);
-            } else {
-                ok = fuzzcmp(dblevel, db, 1.1);
-            }
-
-            println!(
-                "    {:4}Hz@{}Hz    {:6.2} {}= {:6.2}dB            [ {} ]",
-                gfreq,
-                ctx.sampling_frequency,
-                dblevel,
-                if ok { '~' } else { '!' },
-                db,
-                if ok { " OK " } else { "FAIL" }
-            );
-        }
-
-        ok
-    }
 
     #[test]
     fn test_zero_step() {
