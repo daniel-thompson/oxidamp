@@ -8,6 +8,7 @@ pub mod delay;
 pub mod firstorder;
 pub mod sbuf;
 pub mod siggen;
+pub mod tubestage;
 pub mod util;
 pub mod waveshaper;
 
@@ -18,5 +19,6 @@ pub use delay::*;
 pub use firstorder::*;
 pub use sbuf::*;
 pub use siggen::*;
+pub use tubestage::*;
 pub use util::*;
 pub use waveshaper::*;
