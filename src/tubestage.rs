@@ -18,20 +18,20 @@ pub enum Tube {
 }
 
 #[derive(Debug, Default)]
-pub struct TubeStage<'a> {
+pub struct TubeStage {
     vp: f32,
     predivide: f32,
 
     gain: f32,
     input_filter: Biquad,
-    tube: WaveShaper<'a>,
+    tube: WaveShaper<'static>,
     feedback_filter: Biquad,
     output_filter: DCBlocker,
 
     bias: f32,
 }
 
-impl<'a> TubeStage<'a> {
+impl TubeStage {
     pub fn setup(
         &mut self,
         ctx: &AudioContext,
@@ -59,9 +59,13 @@ impl<'a> TubeStage<'a> {
         self.feedback_filter.lowpass(ctx, feedback_cutoff, 0.7);
         self.output_filter.setup(ctx);
     }
+
+    pub fn set_gain(&mut self, dbgain: f32) {
+        self.gain = db2linear(dbgain);
+    }
 }
 
-impl<'a> Filter for TubeStage<'a> {
+impl Filter for TubeStage {
     fn step(&mut self, spl: f32) -> f32 {
         let mut spl = spl;
 
