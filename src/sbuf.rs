@@ -4,10 +4,12 @@
 use crate::*;
 use std::iter::zip;
 
+type Sample = f32;
+
 // TODO: replace with type declaration
 #[derive(Debug, Default)]
 pub struct SampleBuffer {
-    pub v: Vec<f32>,
+    pub v: Vec<Sample>,
 }
 
 impl SampleBuffer {
@@ -18,8 +20,8 @@ impl SampleBuffer {
         sbuf
     }
 
-    pub fn analyse_peak(&self) -> f32 {
-        let mut peak: f32 = 0.0;
+    pub fn analyse_peak(&self) -> Sample {
+        let mut peak: Sample = 0.0;
 
         for spl in &self.v {
             let spl = spl.abs();
@@ -31,20 +33,20 @@ impl SampleBuffer {
         peak
     }
 
-    pub fn analyse_rectify(&self) -> f32 {
-        let mut acc: f32 = 0.0;
+    pub fn analyse_rectify(&self) -> Sample {
+        let mut acc: Sample = 0.0;
 
         for spl in &self.v {
             acc += spl.abs();
         }
 
-        acc / (self.v.len() as f32)
+        acc / (self.v.len() as Sample)
     }
 }
 
 pub trait SignalGenerator {
-    fn step(&mut self) -> f32;
-    fn process(&mut self, samples: &mut [f32]) {
+    fn step(&mut self) -> Sample;
+    fn process(&mut self, samples: &mut [Sample]) {
         for spl in samples {
             *spl = self.step();
         }
@@ -52,10 +54,10 @@ pub trait SignalGenerator {
 }
 
 pub trait Filter {
-    fn step(&mut self, spl: f32) -> f32;
+    fn step(&mut self, spl: Sample) -> Sample;
     fn flush(&mut self);
 
-    fn process(&mut self, inbuf: &[f32], outbuf: &mut [f32]) {
+    fn process(&mut self, inbuf: &[Sample], outbuf: &mut [Sample]) {
         for (inspl, outspl) in zip(inbuf, outbuf) {
             *outspl = self.step(*inspl);
         }
@@ -64,7 +66,7 @@ pub trait Filter {
     /// Stimulate the filter with a specific pure-sine wave.
     ///
     /// TODO: *Does this really need to be a method?*
-    fn stimulate(&mut self, ctx: &AudioContext, gfreq: i32) -> f32 {
+    fn stimulate(&mut self, ctx: &AudioContext, gfreq: i32) -> Sample {
         let mut inbuf = [0.0_f32; 1024];
         let mut outbuf = [0.0_f32; 1024];
         let mut sg = SineGenerator::default();
@@ -83,13 +85,13 @@ pub trait Filter {
 }
 
 pub trait SampleBufferExt {
-    fn analyse_peak(&self) -> f32;
-    fn analyse_rectify(&self) -> f32;
+    fn analyse_peak(&self) -> Sample;
+    fn analyse_rectify(&self) -> Sample;
 }
 
-impl SampleBufferExt for [f32] {
-    fn analyse_peak(&self) -> f32 {
-        let mut peak: f32 = 0.0;
+impl SampleBufferExt for [Sample] {
+    fn analyse_peak(&self) -> Sample {
+        let mut peak: Sample = 0.0;
 
         for spl in self {
             let spl = spl.abs();
@@ -101,13 +103,13 @@ impl SampleBufferExt for [f32] {
         peak
     }
 
-    fn analyse_rectify(&self) -> f32 {
-        let mut acc: f32 = 0.0;
+    fn analyse_rectify(&self) -> Sample {
+        let mut acc: Sample = 0.0;
 
         for spl in self {
             acc += spl.abs();
         }
 
-        acc / (self.len() as f32)
+        acc / (self.len() as Sample)
     }
 }
