@@ -1,11 +1,66 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2022 Daniel Thompson
 
+use clap::{Parser, Subcommand};
 use oxidamp::*;
 use std::io;
 use std::iter::zip;
+use std::sync::mpsc::sync_channel;
 
-fn main() {
+const MAX_MIDI: usize = 3;
+
+//a fixed size container to copy data out of real-time thread
+#[derive(Copy, Clone)]
+struct MidiEvent {
+    len: usize,
+    data: [u8; MAX_MIDI],
+    time: jack::Frames,
+}
+
+impl std::convert::From<jack::RawMidi<'_>> for MidiEvent {
+    fn from(midi: jack::RawMidi<'_>) -> Self {
+        let len = std::cmp::min(MAX_MIDI, midi.bytes.len());
+        let mut data = [0; MAX_MIDI];
+        data[..len].copy_from_slice(&midi.bytes[..len]);
+        MidiEvent {
+            len,
+            data,
+            time: midi.time,
+        }
+    }
+}
+
+impl std::fmt::Debug for MidiEvent {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(
+            f,
+            "MidiEvent {{ time: {:4}, data: {:?} }}",
+            self.time,
+            &self.data[..self.len],
+        )
+    }
+}
+
+/// A digital amplifier in Rust.
+///
+/// Amplifier, synth, drum machine and more...
+#[derive(Parser)]
+#[clap(version)]
+struct Cli {
+    #[clap(subcommand)]
+    cmd: Commands,
+}
+
+#[derive(Subcommand)]
+enum Commands {
+    /// Digital amplifier
+    Amplifier,
+
+    /// Dump MIDI packets for debugging
+    MidiDump,
+}
+
+fn amp() {
     let (client, _status) =
         jack::Client::new("Oxidamp", jack::ClientOptions::NO_START_SERVER).unwrap();
 
@@ -45,42 +100,87 @@ fn main() {
     let active_client = client.activate_async(Notifications, process).unwrap();
 
     // Wait for user input to quit
-    println!("Press enter/return to quit...");
+    println!("main: press enter/return to quit...");
     let mut user_input = String::new();
     io::stdin().read_line(&mut user_input).ok();
 
     active_client.deactivate().unwrap();
 }
 
+fn midi_dump() {
+    let (client, _status) =
+        jack::Client::new("Oxidamp", jack::ClientOptions::NO_START_SERVER).unwrap();
+
+    let in_midi = client
+        .register_port("midi_in", jack::MidiIn::default())
+        .unwrap();
+    let (sender, receiver) = sync_channel(64);
+
+    let process = jack::ClosureProcessHandler::new(
+        move |_: &jack::Client, ps: &jack::ProcessScope| -> jack::Control {
+            let events = in_midi.iter(ps);
+            for evt in events {
+                let c: MidiEvent = evt.into();
+                let _ = sender.try_send(c);
+            }
+            jack::Control::Continue
+        },
+    );
+
+    let active_client = client.activate_async(Notifications, process).unwrap();
+
+    // spawn a non-real-time thread that prints out the midi messages we get
+    std::thread::spawn(move || {
+        while let Ok(m) = receiver.recv() {
+            println!("midi: {:?}", m);
+        }
+    });
+
+    println!("main: press enter/return to quit...");
+    let mut user_input = String::new();
+    io::stdin().read_line(&mut user_input).ok();
+
+    active_client.deactivate().unwrap();
+}
+
+fn main() {
+    let args = Cli::parse();
+
+    match args.cmd {
+        Commands::Amplifier => amp(),
+        Commands::MidiDump => midi_dump(),
+    }
+}
+
 struct Notifications;
 
 impl jack::NotificationHandler for Notifications {
     fn thread_init(&self, _: &jack::Client) {
-        println!("JACK: thread init");
+        println!("jack: thread init");
     }
 
     fn shutdown(&mut self, status: jack::ClientStatus, reason: &str) {
         println!(
-            "JACK: shutdown with status {:?} because \"{}\"",
+            "jack: shutdown with status {:?} because \"{}\"",
             status, reason
         );
     }
 
     fn freewheel(&mut self, _: &jack::Client, is_enabled: bool) {
         println!(
-            "JACK: freewheel mode is {}",
+            "jack: freewheel mode is {}",
             if is_enabled { "on" } else { "off" }
         );
     }
 
     fn sample_rate(&mut self, _: &jack::Client, srate: jack::Frames) -> jack::Control {
-        println!("JACK: sample rate changed to {}", srate);
+        println!("jack: sample rate changed to {}", srate);
         jack::Control::Continue
     }
 
     fn client_registration(&mut self, _: &jack::Client, name: &str, is_reg: bool) {
         println!(
-            "JACK: {} client with name \"{}\"",
+            "jack: {} client with name \"{}\"",
             if is_reg { "registered" } else { "unregistered" },
             name
         );
@@ -88,7 +188,7 @@ impl jack::NotificationHandler for Notifications {
 
     fn port_registration(&mut self, _: &jack::Client, port_id: jack::PortId, is_reg: bool) {
         println!(
-            "JACK: {} port with id {}",
+            "jack: {} port with id {}",
             if is_reg { "registered" } else { "unregistered" },
             port_id
         );
@@ -102,7 +202,7 @@ impl jack::NotificationHandler for Notifications {
         new_name: &str,
     ) -> jack::Control {
         println!(
-            "JACK: port with id {} renamed from {} to {}",
+            "jack: port with id {} renamed from {} to {}",
             port_id, old_name, new_name
         );
         jack::Control::Continue
@@ -116,7 +216,7 @@ impl jack::NotificationHandler for Notifications {
         are_connected: bool,
     ) {
         println!(
-            "JACK: ports with id {} and {} are {}",
+            "jack: ports with id {} and {} are {}",
             port_id_a,
             port_id_b,
             if are_connected {
@@ -128,12 +228,12 @@ impl jack::NotificationHandler for Notifications {
     }
 
     fn graph_reorder(&mut self, _: &jack::Client) -> jack::Control {
-        println!("JACK: graph reordered");
+        println!("jack: graph reordered");
         jack::Control::Continue
     }
 
     fn xrun(&mut self, _: &jack::Client) -> jack::Control {
-        println!("JACK: xrun occurred");
+        println!("jack: xrun occurred");
         jack::Control::Continue
     }
 }
