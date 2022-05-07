@@ -3,6 +3,7 @@
 
 use crate::*;
 use std::f64::consts::PI;
+use std::iter::zip;
 
 /// Biquad filter coefficients
 ///
@@ -17,31 +18,58 @@ pub struct BiquadCoeff {
 #[derive(Debug, Default)]
 pub struct Biquad {
     coeff: BiquadCoeff,
-    zx: [f32; 2],
-    zy: [f32; 2],
-    zi: usize,
+    z: [f32; 2],
+}
+
+impl Biquad {
+    /// Transposed Direct Form II single filter step
+    fn micro_step(&mut self, x: f32, z1: f32, z2: f32) -> (f32, f32, f32) {
+        let b0 = self.coeff.x[0];
+        let b1 = self.coeff.x[1];
+        let b2 = self.coeff.x[2];
+        let ma1 = self.coeff.y[0];
+        let ma2 = self.coeff.y[1];
+
+        let y = b0 * x + z1;
+        let z1 = b1 * x + ma1 * y + z2;
+        let z2 = b2 * x + ma2 * y;
+
+        (y, z1, z2)
+    }
 }
 
 impl Filter for Biquad {
     fn step(&mut self, x: f32) -> f32 {
-        let nextzi = (self.zi == 0) as usize;
-
-        let mut y = self.coeff.x[0] * x;
-        y += self.coeff.x[1] * self.zx[self.zi];
-        y += self.coeff.x[2] * self.zx[nextzi];
-        y += self.coeff.y[0] * self.zy[self.zi];
-        y += self.coeff.y[1] * self.zy[nextzi];
-
-        self.zx[nextzi] = x;
-        self.zy[nextzi] = y;
-        self.zi = nextzi;
-
+        let y;
+        (y, self.z[0], self.z[1]) = self.micro_step(x, self.z[0], self.z[1]);
         y
     }
 
+    /// Optimized processing loop for biquad filters
+    ///
+    /// TODO: It is very unclear why this function is needed (or put another
+    ///       way, future compiler improvements should make this obsolete.
+    ///
+    /// The only difference between this and the normal processing loop is that
+    /// the history buffer is held in local variables ready for the
+    /// ::micro_step(). In principle that should make no difference because the
+    /// compiler knows that we have mutably borrowed self meaning there is no
+    /// need to store and reload the intermediate values to the actual history
+    /// buffer.
+    fn process(&mut self, inbuf: &[f32], outbuf: &mut [f32]) {
+        let mut z1 = self.z[0];
+        let mut z2 = self.z[1];
+
+        for (x, y) in zip(inbuf, outbuf) {
+            (*y, z1, z2) = self.micro_step(*x, z1, z2);
+        }
+
+        self.z[0] = z1;
+        self.z[1] = z2;
+    }
+
     fn flush(&mut self) {
-        self.zx = [0.0; 2];
-        self.zy = [0.0; 2];
+        self.z = [0.0; 2];
     }
 }
 
@@ -353,5 +381,31 @@ mod tests {
         bq.lowshelf(&ctx, 750, 6.0, 0.7);
         assert!(check_response(&ctx, &mut bq, 300, 6.0));
         assert!(check_response(&ctx, &mut bq, 2000, 0.0));
+    }
+
+    #[test]
+    fn test_biquad_coprocess() {
+        let ctx = AudioContext::new(48000);
+        let mut inbuf = [0.0; 1024];
+
+        let mut sg = SineGenerator::default();
+        sg.setup(&ctx, 440, db2linear(-3.0));
+        sg.process(&mut inbuf);
+
+        let mut stepbuf = [0.0; 1024];
+        let mut stepbq = Biquad::default();
+        stepbq.lowpass(&ctx, 8000, 0.7);
+        for (i, s) in zip(&inbuf, &mut stepbuf) {
+            *s = stepbq.step(*i);
+        }
+
+        let mut procbuf = [0.0; 1024];
+        let mut procbq = Biquad::default();
+        procbq.lowpass(&ctx, 8000, 0.7);
+        procbq.process(&inbuf, &mut procbuf);
+
+        for (s, p) in zip(&stepbuf, &procbuf) {
+            assert_eq!(*s, *p);
+        }
     }
 }
