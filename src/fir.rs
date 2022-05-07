@@ -74,7 +74,8 @@ impl<const O: usize, const P: usize> Filter for FIR<O, P> {
 
         // Rip though the rest of the samples
         for i in O..len {
-            outbuf[i] = self.micro_step(&inbuf[(i - O)..i]);
+            let j = i + 1;
+            outbuf[i] = self.micro_step(&inbuf[(j - O)..j]);
         }
 
         // Update the history buffer
@@ -233,5 +234,64 @@ mod tests {
         assert!(check_response(&ctx, &mut fir, 10000, -9.0));
         assert!(check_response(&ctx, &mut fir, 11000, -29.0));
         assert!(check_response(&ctx, &mut fir, 12000, -96.0));
+    }
+
+    #[test]
+    fn test_fir16_step() {
+        let mut fir = FIR::<16, 31> {
+            coeffs: [0.5; 16],
+            ..Default::default()
+        };
+
+        for i in 0..64 {
+            let inspl = if 0 == i % 16 { 1.0 } else { 0.0 };
+            let outspl = fir.step(inspl);
+            assert_eq!(outspl, 0.5);
+        }
+    }
+
+    #[test]
+    fn test_fir16_process() {
+        let mut fir = FIR::<16, 31> {
+            coeffs: [0.5; 16],
+            ..Default::default()
+        };
+
+        let mut inbuf = [0.0; 64];
+        inbuf[0] = 1.0;
+        inbuf[16] = 1.0;
+        inbuf[32] = 1.0;
+        inbuf[48] = 1.0;
+
+        let mut outbuf = [0.0; 64];
+        fir.process(&inbuf, &mut outbuf);
+
+        for outspl in &outbuf {
+            assert_eq!(*outspl, 0.5);
+        }
+    }
+
+    #[test]
+    fn test_fir64_coprocess() {
+        let ctx = AudioContext::new(48000);
+        let mut inbuf = [0.0; 1024];
+
+        let mut sg = SineGenerator::default();
+        sg.setup(&ctx, 440, db2linear(-3.0));
+        sg.process(&mut inbuf);
+
+        let mut stepbuf = [0.0; 1024];
+        let mut stepfir = fir64_halfband();
+        for (i, s) in zip(&inbuf, &mut stepbuf) {
+            *s = stepfir.step(*i);
+        }
+
+        let mut procbuf = [0.0; 1024];
+        let mut procfir = fir64_halfband();
+        procfir.process(&inbuf, &mut procbuf);
+
+        for (s, p) in zip(&stepbuf, &procbuf) {
+            assert_eq!(*s, *p);
+        }
     }
 }
