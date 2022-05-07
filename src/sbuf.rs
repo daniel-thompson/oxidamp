@@ -4,45 +4,7 @@
 use crate::*;
 use std::iter::zip;
 
-type Sample = f32;
-
-// TODO: replace with type declaration
-#[derive(Debug, Default)]
-pub struct SampleBuffer {
-    pub v: Vec<Sample>,
-}
-
-impl SampleBuffer {
-    pub fn new(sz: usize) -> Self {
-        let mut sbuf = SampleBuffer::default();
-        sbuf.v.resize(sz, 0.0);
-
-        sbuf
-    }
-
-    pub fn analyse_peak(&self) -> Sample {
-        let mut peak: Sample = 0.0;
-
-        for spl in &self.v {
-            let spl = spl.abs();
-            if spl > peak {
-                peak = spl;
-            }
-        }
-
-        peak
-    }
-
-    pub fn analyse_rectify(&self) -> Sample {
-        let mut acc: Sample = 0.0;
-
-        for spl in &self.v {
-            acc += spl.abs();
-        }
-
-        acc / (self.v.len() as Sample)
-    }
-}
+pub type Sample = f32;
 
 pub trait SignalGenerator {
     fn step(&mut self) -> Sample;
