@@ -82,6 +82,15 @@ fn preamp<const L: usize>(bench: &mut Bencher) {
     });
 }
 
+fn reverb<const L: usize>(bench: &mut Bencher) {
+    let (_, inbuf, mut outbuf) = init::<L>();
+    let mut jcrev = Reverb::default();
+
+    bench.iter(|| {
+        jcrev.process(&inbuf, &mut outbuf);
+    });
+}
+
 fn tonestack<const L: usize>(bench: &mut Bencher) {
     let (ctx, inbuf, mut outbuf) = init::<L>();
     let mut ts = ToneStack::default();
@@ -135,6 +144,8 @@ benchmark_group!(
     fir64::<480>,
     preamp::<1920>,
     preamp::<480>,
+    reverb::<1920>,
+    reverb::<480>,
     tonestack::<1920>,
     tonestack::<480>,
     tubestage::<1920>,
