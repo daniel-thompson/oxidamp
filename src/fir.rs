@@ -79,9 +79,7 @@ impl<const O: usize, const P: usize> Filter for FIR<O, P> {
         }
 
         // Update the history buffer
-        for (z, i) in zip(&mut self.zbuf[0..O], &inbuf[(len - O)..len]) {
-            *z = *i;
-        }
+        self.zbuf[0..O].copy_from_slice(&inbuf[(len - O)..len]);
         self.zi = 0;
     }
 
