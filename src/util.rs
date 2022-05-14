@@ -49,6 +49,33 @@ pub fn linear2db(spl: f32) -> f32 {
     spl.log10() * 20.0
 }
 
+/// Generate a 31-bit random number.
+///
+/// Derived from http://www.firstpr.com.au/dsp/rand31/ , this is the
+/// Park-Miller "minimal standard" 31 bit pseudo-random number generator,
+/// implemented with David G. Carta's optimization with 32 bit math and
+/// without division.
+///
+/// For most applications, this is largely a historical curiosity. It is
+/// fast and has a tiny, tiny internal state which is great but that is
+/// mostly because it is extremely primitive. It can't be used for things
+/// like white noise but we do use it for low frequency "humanization" in
+/// a couple of places.
+pub fn rand31(seed: &mut u32) -> u32 {
+    let lo = 16807 * (*seed & 0xffff);
+    let hi = 16807 * (*seed >> 16);
+
+    let mid = lo + ((hi & 0x7fff) << 16) + (hi >> 15);
+
+    *seed = if mid > 0x7fffffff {
+        mid - 0x7fffffff
+    } else {
+        mid
+    };
+
+    *seed
+}
+
 pub fn check_response(ctx: &AudioContext, f: &mut impl Filter, gfreq: i32, db: f32) -> bool {
     let level = f.stimulate(ctx, gfreq);
     let ok;

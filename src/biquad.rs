@@ -9,7 +9,7 @@ use std::iter::zip;
 ///
 /// The coefficients fully describe the filter but cannot
 /// really be operated on without the rest of the filter state.
-#[derive(Debug, Default)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct BiquadCoeff {
     x: [f32; 3],
     y: [f32; 2],
@@ -17,7 +17,7 @@ pub struct BiquadCoeff {
 
 #[derive(Debug, Default)]
 pub struct Biquad {
-    coeff: BiquadCoeff,
+    pub coeff: BiquadCoeff,
     z: [f32; 2],
 }
 
