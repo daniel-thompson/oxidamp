@@ -156,12 +156,8 @@ fn drum_machine() {
 
     // Build and run the UI
     let mut siv = cursive::default();
-    siv.set_user_data(sender);
 
-    let bpm_slider = cursive::views::SliderView::horizontal(70).on_change(|s, n| {
-        let sender = s
-            .user_data::<std::sync::mpsc::SyncSender<drummachine::Control>>()
-            .unwrap();
+    let bpm_slider = cursive::views::SliderView::horizontal(70).on_change(move |_s, n| {
         let bpm = 2 * n as u32 + 60;
         let _ = sender.try_send(drummachine::Control::BeatsPerMinute(bpm));
     });
