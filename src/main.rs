@@ -56,6 +56,9 @@ enum Commands {
     /// Digital amplifier
     Amplifier,
 
+    /// Simple lo-fi drum machine
+    DrumMachine,
+
     /// Dump MIDI packets for debugging
     MidiDump,
 }
@@ -107,6 +110,73 @@ fn amp() {
     active_client.deactivate().unwrap();
 }
 
+fn drum_machine() {
+    let (client, _status) =
+        jack::Client::new("Oxidamp", jack::ClientOptions::NO_START_SERVER).unwrap();
+
+    let mut out_port_l = client
+        .register_port("drums_l", jack::AudioOut::default())
+        .unwrap();
+    let mut out_port_r = client
+        .register_port("drums_r", jack::AudioOut::default())
+        .unwrap();
+
+    let ctx = AudioContext::new(client.sample_rate() as i32);
+    let mut dm = DrumMachine::default();
+    dm.setup(&ctx);
+
+    let (sender, receiver) = sync_channel(16);
+    let _ = sender.try_send(drummachine::Control::BeatsPerMinute(90));
+    let _ = sender.try_send(drummachine::Control::Pattern(3));
+
+    let process = jack::ClosureProcessHandler::new(
+        move |_: &jack::Client, ps: &jack::ProcessScope| -> jack::Control {
+            // handle any pending control updates
+            while let Ok(ctrl) = receiver.try_recv() {
+                dm.set_control(&ctrl);
+            }
+
+            // get the slices (all shouuld be the same length)
+            let outl = out_port_l.as_mut_slice(ps);
+            let outr = out_port_r.as_mut_slice(ps);
+
+            dm.process(outl);
+
+            // currently the Amplifier has only one output so we'll
+            for (l, r) in zip(outl, outr) {
+                *r = *l;
+            }
+
+            jack::Control::Continue
+        },
+    );
+
+    // Activate the client, which starts the processing.
+    let active_client = client.activate_async((), process).unwrap();
+
+    // Build and run the UI
+    let mut siv = cursive::default();
+    siv.set_user_data(sender);
+
+    let bpm_slider = cursive::views::SliderView::horizontal(70).on_change(|s, n| {
+        let sender = s
+            .user_data::<std::sync::mpsc::SyncSender<drummachine::Control>>()
+            .unwrap();
+        let bpm = 2 * n as u32 + 60;
+        let _ = sender.try_send(drummachine::Control::BeatsPerMinute(bpm));
+    });
+
+    siv.add_layer(
+        cursive::views::Dialog::around(bpm_slider)
+            .title("Drum machine")
+            .button("Quit", |s| s.quit()),
+    );
+
+    siv.run();
+
+    active_client.deactivate().unwrap();
+}
+
 fn midi_dump() {
     let (client, _status) =
         jack::Client::new("Oxidamp", jack::ClientOptions::NO_START_SERVER).unwrap();
@@ -148,6 +218,7 @@ fn main() {
 
     match args.cmd {
         Commands::Amplifier => amp(),
+        Commands::DrumMachine => drum_machine(),
         Commands::MidiDump => midi_dump(),
     }
 }
