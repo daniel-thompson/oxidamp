@@ -54,6 +54,18 @@ fn cabsim<const L: usize>(bench: &mut Bencher) {
     });
 }
 
+fn drummachine<const L: usize>(bench: &mut Bencher) {
+    let (ctx, mut inbuf, mut outbuf) = init::<L>();
+    let mut dc = DrumMachine::default();
+    dc.setup(&ctx);
+    let mut jcrev = Reverb::default();
+
+    bench.iter(|| {
+        dc.process(&mut inbuf);
+        jcrev.process(&inbuf, &mut outbuf);
+    });
+}
+
 fn fir16<const L: usize>(bench: &mut Bencher) {
     let (_, inbuf, mut outbuf) = init::<L>();
     let mut fir = fir16_halfband();
@@ -138,6 +150,8 @@ benchmark_group!(
     biquad::<480>,
     cabsim::<1920>,
     cabsim::<480>,
+    drummachine::<1920>,
+    drummachine::<480>,
     fir16::<1920>,
     fir16::<480>,
     fir64::<1920>,
