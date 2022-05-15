@@ -91,6 +91,7 @@ pub struct DrumMachine {
     sfreq: i32,
 
     cold_sample: bool,
+    last_sample: f32,
     resampler: Biquad,
     coefficients: [BiquadCoeff; 16],
 
@@ -113,6 +114,7 @@ impl Default for DrumMachine {
             sfreq: 0,
 
             cold_sample: false,
+            last_sample: 0.0,
             resampler: Biquad::default(),
             coefficients: [BiquadCoeff::default(); 16],
 
@@ -246,10 +248,11 @@ impl SignalGenerator for DrumMachine {
                 self.resampler.coeff = coeff[rand % coeff.len()];
             }
         } else {
-            spl = 0.0;
+            spl = self.last_sample;
         }
 
-        self.resampler.step(spl)
+        self.last_sample = self.resampler.step(spl);
+        self.last_sample
     }
 }
 
