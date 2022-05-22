@@ -8,7 +8,7 @@ use std::sync::mpsc::sync_channel;
 
 const MAX_MIDI: usize = 3;
 
-//a fixed size container to copy data out of real-time thread
+// a fixed size container to copy data out of real-time thread
 #[derive(Copy, Clone)]
 struct MidiEvent {
     len: usize,
@@ -152,15 +152,29 @@ fn drum_machine() {
     // Build and run the UI
     let mut siv = cursive::default();
 
+    let bpm_sender = sender.clone();
     let bpm_slider = cursive::views::SliderView::horizontal(70).on_change(move |_s, n| {
         let bpm = 2 * n as u32 + 60;
-        let _ = sender.try_send(drummachine::Control::BeatsPerMinute(bpm));
+        let _ = bpm_sender.try_send(drummachine::Control::BeatsPerMinute(bpm));
     });
 
+    let pattern_sender = sender.clone();
+    let mut pattern = cursive::views::SelectView::new().on_select(move |_s, n| {
+        let _ = pattern_sender.try_send(drummachine::Control::Pattern(*n));
+    });
+    pattern.add_item("4 beat", 0);
+    pattern.add_item("8 beat", 1);
+    pattern.add_item("8 beat with swing", 2);
+    pattern.add_item("8 beat rock", 3);
+
     siv.add_layer(
-        cursive::views::Dialog::around(bpm_slider)
-            .title("Drum machine")
-            .button("Quit", |s| s.quit()),
+        cursive::views::Dialog::around(
+            cursive::views::LinearLayout::vertical()
+                .child(bpm_slider)
+                .child(pattern),
+        )
+        .title("Drum machine")
+        .button("Quit", |s| s.quit()),
     );
 
     siv.run();
