@@ -76,6 +76,10 @@ pub fn rand31(seed: &mut u32) -> u32 {
     *seed
 }
 
+pub fn frand31(seed: &mut u32) -> f32 {
+    ((rand31(seed) as f32) / 1073741824.0) - 1.0
+}
+
 pub fn check_response(ctx: &AudioContext, f: &mut impl Filter, gfreq: i32, db: f32) -> bool {
     let level = f.stimulate(ctx, gfreq);
     let ok;
@@ -113,4 +117,47 @@ pub fn check_response(ctx: &AudioContext, f: &mut impl Filter, gfreq: i32, db: f
     }
 
     ok
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_rand31_first_ten() {
+        let mut seed = 1;
+
+        assert_eq!(16807, rand31(&mut seed));
+        assert_eq!(282475249, rand31(&mut seed));
+        assert_eq!(1622650073, rand31(&mut seed));
+        assert_eq!(984943658, rand31(&mut seed));
+        assert_eq!(1144108930, rand31(&mut seed));
+        assert_eq!(470211272, rand31(&mut seed));
+        assert_eq!(101027544, rand31(&mut seed));
+        assert_eq!(1457850878, rand31(&mut seed));
+        assert_eq!(1458777923, rand31(&mut seed));
+        assert_eq!(2007237709, rand31(&mut seed));
+    }
+
+    #[test]
+    fn test_frand31_spread() {
+        let mut seed = 1;
+        let mut acc = 0.0;
+        let mut abs = 0.0;
+
+        for _i in 0..100000 {
+            let v = frand31(&mut seed);
+            acc += v;
+            abs += v.abs();
+
+            assert!(-1.0 <= v && v <= 1.0);
+        }
+
+        let mean = acc / 100000.0;
+        let abs_mean = abs / 100000.0;
+
+        assert!(mean < 0.001);
+        assert!(abs_mean > 0.499);
+        assert!(abs_mean < 0.501);
+    }
 }
