@@ -60,6 +60,9 @@ enum Commands {
 
     /// Dump MIDI packets for debugging
     MidiDump,
+
+    /// Karplus-Strong based strings synthesizer
+    Synth,
 }
 
 fn amp() {
@@ -218,6 +221,60 @@ fn midi_dump() {
     active_client.deactivate().unwrap();
 }
 
+fn synth() {
+    let (client, _status) =
+        jack::Client::new("Oxidamp", jack::ClientOptions::NO_START_SERVER).unwrap();
+
+    let mut out_port = client
+        .register_port("synth", jack::AudioOut::default())
+        .unwrap();
+
+    let ctx = AudioContext::new(client.sample_rate() as i32);
+    let mut ks = KarplusStrong::default();
+    ks.setup(&ctx);
+
+    let mut counter = 0;
+    let mut state = true;
+
+    let process = jack::ClosureProcessHandler::new(
+        move |_: &jack::Client, ps: &jack::ProcessScope| -> jack::Control {
+            // get the slices (all shouuld be the same length)
+            let outbuf = out_port.as_mut_slice(ps);
+
+            ks.process(outbuf);
+
+            counter += outbuf.len();
+            if counter > 48000 {
+                if state {
+                    ks.trigger();
+                } else {
+                    ks.mute();
+                }
+                state = !state;
+                counter = 0;
+            }
+
+            jack::Control::Continue
+        },
+    );
+
+    // Activate the client, which starts the processing.
+    let active_client = client.activate_async((), process).unwrap();
+
+    // Build and run the UI
+    let mut siv = cursive::default();
+
+    siv.add_layer(
+        cursive::views::Dialog::around(cursive::views::LinearLayout::vertical())
+            .title("Bitsichord")
+            .button("Quit", |s| s.quit()),
+    );
+
+    siv.run();
+
+    active_client.deactivate().unwrap();
+}
+
 fn main() {
     let args = Cli::parse();
 
@@ -225,6 +282,7 @@ fn main() {
         Commands::Amplifier => amp(),
         Commands::DrumMachine => drum_machine(),
         Commands::MidiDump => midi_dump(),
+        Commands::Synth => synth(),
     }
 }
 
