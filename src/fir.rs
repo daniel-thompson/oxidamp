@@ -89,6 +89,13 @@ impl<const O: usize, const P: usize> Filter for FIR<O, P> {
     }
 }
 
+pub fn fir2_halfband() -> FIR<2, 3> {
+    FIR::<2, 3> {
+        coeffs: [0.5, 0.5],
+        ..Default::default()
+    }
+}
+
 pub fn fir16_halfband() -> FIR<16, 31> {
     FIR::<16, 31> {
         coeffs: [
