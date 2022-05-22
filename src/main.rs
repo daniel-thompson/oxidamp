@@ -4,7 +4,6 @@
 use clap::{Parser, Subcommand};
 use oxidamp::*;
 use std::io;
-use std::iter::zip;
 use std::sync::mpsc::sync_channel;
 
 const MAX_MIDI: usize = 3;
@@ -90,10 +89,8 @@ fn amp() {
 
             amp.process(inbuf, outl);
 
-            // currently the Amplifier has only one output so we'll
-            for (l, r) in zip(outl, outr) {
-                *r = *l;
-            }
+            // currently the Amplifier has only one output so we'll just...
+            outr.copy_from_slice(&outl);
 
             jack::Control::Continue
         },
@@ -142,10 +139,8 @@ fn drum_machine() {
 
             dm.process(outl);
 
-            // currently the Amplifier has only one output so we'll
-            for (l, r) in zip(outl, outr) {
-                *r = *l;
-            }
+            // currently there is only one output so we'll just...
+            outr.copy_from_slice(&outl);
 
             jack::Control::Continue
         },
