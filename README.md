@@ -18,6 +18,19 @@ microcontrollers needed to handle audio.
 In short, at present oxidamp is just a personal playground... but maybe
 one day it will be more!
 
+Pre-requisites
+--------------
+
+oxidamp uses jack for all audio and MIDI input/output. On modern desktop
+systems, pipewire can act as the jack server providing a fully
+integrated alternative to the traditional jack daemon.
+
+On Fedora try:
+
+    sudo dnf install pipewire-plugin-jack qpwgraph
+
+For Debian or Arch take a look at the appropriate pipewire wiki pages!
+
 License
 -------
 
