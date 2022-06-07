@@ -191,6 +191,9 @@ fn synth() {
     let (client, _status) =
         jack::Client::new("Oxidamp", jack::ClientOptions::NO_START_SERVER).unwrap();
 
+    let in_midi = client
+        .register_port("midi_in", jack::MidiIn::default())
+        .unwrap();
     let mut out_port = client
         .register_port("synth", jack::AudioOut::default())
         .unwrap();
@@ -199,26 +202,25 @@ fn synth() {
     let mut ks = KarplusStrong::default();
     ks.setup(&ctx);
 
-    let mut counter = 0;
-    let mut state = true;
-
     let process = jack::ClosureProcessHandler::new(
         move |_: &jack::Client, ps: &jack::ProcessScope| -> jack::Control {
-            // get the slices (all shouuld be the same length)
-            let outbuf = out_port.as_mut_slice(ps);
-
-            ks.process(outbuf);
-
-            counter += outbuf.len();
-            if counter > 48000 {
-                if state {
-                    ks.trigger();
-                } else {
-                    ks.mute();
+            let events = in_midi.iter(ps);
+            for evt in events {
+                let c: MidiEvent = evt.into();
+                match c.data {
+                    MidiData::NoteOn(_) => {
+                        ks.trigger();
+                    }
+                    MidiData::NoteOff(_) => {
+                        ks.mute();
+                    }
+                    MidiData::Raw(_) => {
+                    }
                 }
-                state = !state;
-                counter = 0;
             }
+
+            let outbuf = out_port.as_mut_slice(ps);
+            ks.process(outbuf);
 
             jack::Control::Continue
         },
