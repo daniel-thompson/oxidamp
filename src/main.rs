@@ -208,14 +208,14 @@ fn synth() {
             for evt in events {
                 let c: MidiEvent = evt.into();
                 match c.data {
-                    MidiData::NoteOn(_) => {
+                    MidiData::NoteOn(note) => {
+                        ks.tune(&ctx, note.freq());
                         ks.trigger();
                     }
                     MidiData::NoteOff(_) => {
                         ks.mute();
                     }
-                    MidiData::Raw(_) => {
-                    }
+                    MidiData::Raw(_) => {}
                 }
             }
 

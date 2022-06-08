@@ -40,6 +40,11 @@ impl KarplusStrong {
     pub fn mute(&mut self) {
         self.gain = 0.95;
     }
+
+    pub fn tune(&mut self, ctx: &AudioContext, freq: f32) {
+        let delay = ctx.sampling_frequency as f32 / freq;
+        self.delay.setup(ctx, delay as usize);
+    }
 }
 
 impl SignalGenerator for KarplusStrong {
