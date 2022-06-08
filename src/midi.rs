@@ -14,6 +14,11 @@ impl MidiNote {
     pub fn new(note: u8, velocity: u8) -> Self {
         Self { note, velocity }
     }
+
+    pub fn freq(&self) -> f32 {
+        // TODO: convert this to a lookup table?
+        440.0 * 2.0_f32.powf((self.note as f32 - 69.0) / 12.0)
+    }
 }
 
 #[derive(Copy, Clone, Debug)]
@@ -50,5 +55,22 @@ impl From<RawMidi<'_>> for MidiEvent {
             },
             time: midi.time,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_midi_freq() {
+        let a0 = MidiNote::new(21, 127);
+        assert_eq!(a0.freq(), 27.50);
+
+        let c4 = MidiNote::new(60, 127);
+        assert_eq!(c4.freq(), 261.62555);
+
+        let g9 = MidiNote::new(127, 127);
+        assert_eq!(g9.freq(), 12543.855);
     }
 }
