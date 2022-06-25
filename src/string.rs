@@ -6,7 +6,7 @@ use std::num::Wrapping;
 
 #[derive(Debug)]
 pub struct KarplusStrong {
-    delay: Delay<1920>,
+    delay: FracDelay<1920>,
     //filter: FIR<2, 3>,
     filter: FirstOrder,
     seed: u32,
@@ -17,7 +17,7 @@ pub struct KarplusStrong {
 impl Default for KarplusStrong {
     fn default() -> Self {
         Self {
-            delay: Delay::default(),
+            delay: FracDelay::default(),
             //filter: fir2_halfband(),
             filter: FirstOrder::default(),
             seed: 1,
@@ -29,7 +29,7 @@ impl Default for KarplusStrong {
 
 impl KarplusStrong {
     pub fn setup(&mut self, ctx: &AudioContext) {
-        self.delay.setup(&ctx, 120);
+        self.delay.setup(&ctx, 120.0);
         self.filter.lowpass(&ctx, ctx.sampling_frequency / 4);
     }
 
@@ -44,7 +44,7 @@ impl KarplusStrong {
 
     pub fn tune(&mut self, ctx: &AudioContext, freq: f32) {
         let delay = ctx.sampling_frequency as f32 / freq;
-        self.delay.setup(ctx, delay as usize);
+        self.delay.setup(ctx, delay);
     }
 }
 
