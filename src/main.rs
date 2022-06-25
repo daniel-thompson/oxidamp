@@ -199,28 +199,19 @@ fn synth() {
         .unwrap();
 
     let ctx = AudioContext::new(client.sample_rate() as i32);
-    let mut ks = KarplusStrong::default();
-    ks.setup(&ctx);
+    let mut synth = VoiceBox::default();
+    synth.setup(&ctx);
 
     let process = jack::ClosureProcessHandler::new(
         move |_: &jack::Client, ps: &jack::ProcessScope| -> jack::Control {
             let events = in_midi.iter(ps);
             for evt in events {
                 let c: MidiEvent = evt.into();
-                match c.data {
-                    MidiData::NoteOn(note) => {
-                        ks.tune(&ctx, note.freq());
-                        ks.trigger();
-                    }
-                    MidiData::NoteOff(_) => {
-                        ks.mute();
-                    }
-                    MidiData::Raw(_) => {}
-                }
+                synth.midi(&ctx, &c.data);
             }
 
             let outbuf = out_port.as_mut_slice(ps);
-            ks.process(outbuf);
+            synth.process(outbuf);
 
             jack::Control::Continue
         },
@@ -230,15 +221,20 @@ fn synth() {
     let active_client = client.activate_async((), process).unwrap();
 
     // Build and run the UI
-    let mut siv = cursive::default();
+    //let mut siv = cursive::default();
 
-    siv.add_layer(
-        cursive::views::Dialog::around(cursive::views::LinearLayout::vertical())
-            .title("Bitsichord")
-            .button("Quit", |s| s.quit()),
-    );
+    //siv.add_layer(
+    //    cursive::views::Dialog::around(cursive::views::LinearLayout::vertical())
+    //        .title("Bitsichord")
+    //        .button("Quit", |s| s.quit()),
+    //);
 
-    siv.run();
+    //siv.run();
+
+    // Wait for user input to quit
+    println!("main: press enter/return to quit...");
+    let mut user_input = String::new();
+    io::stdin().read_line(&mut user_input).ok();
 
     active_client.deactivate().unwrap();
 }
