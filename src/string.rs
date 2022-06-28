@@ -29,8 +29,8 @@ impl Default for KarplusStrong {
 
 impl KarplusStrong {
     pub fn setup(&mut self, ctx: &AudioContext) {
-        self.delay.setup(&ctx, 120.0);
-        self.filter.lowpass(&ctx, ctx.sampling_frequency / 4);
+        self.delay.setup(ctx, 120.0);
+        self.filter.lowpass(ctx, ctx.sampling_frequency / 4);
     }
 
     pub fn trigger(&mut self) {
@@ -120,7 +120,7 @@ impl VoiceBox {
         match data {
             MidiData::NoteOn(note) => {
                 let voice = self.note_on(note.note);
-                voice.tune(&ctx, note.freq());
+                voice.tune(ctx, note.freq());
                 voice.trigger();
             }
             MidiData::NoteOff(note) => {

@@ -33,7 +33,7 @@ pub trait Filter {
         let mut outbuf = [0.0_f32; 1024];
         let mut sg = SineGenerator::default();
 
-        sg.setup(&ctx, gfreq, 1.570793);
+        sg.setup(ctx, gfreq, 1.570793);
 
         // stimulate the filter
         for _ in 0..10 {

@@ -59,7 +59,7 @@ fn amp() {
             amp.process(inbuf, outl);
 
             // currently the Amplifier has only one output so we'll just...
-            outr.copy_from_slice(&outl);
+            outr.copy_from_slice(outl);
 
             jack::Control::Continue
         },
@@ -109,7 +109,7 @@ fn drum_machine() {
             dm.process(outl);
 
             // currently there is only one output so we'll just...
-            outr.copy_from_slice(&outl);
+            outr.copy_from_slice(outl);
 
             jack::Control::Continue
         },

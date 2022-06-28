@@ -28,9 +28,9 @@ pub fn fuzzcmp(a: f32, b: f32, delta: f32) -> bool {
     }
 
     if aa <= ab {
-        return (aa * delta) >= ab;
+        (aa * delta) >= ab
     } else {
-        return (ab * delta) >= aa;
+        (ab * delta) >= aa
     }
 }
 
