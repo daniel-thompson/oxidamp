@@ -199,7 +199,7 @@ fn synth() {
         .unwrap();
 
     let ctx = AudioContext::new(client.sample_rate() as i32);
-    let mut synth = VoiceBox::<KarplusStrong>::default();
+    let mut synth = VoiceBox::<DetunedPair<KarplusStrong>>::default();
     synth.setup(&ctx);
 
     let process = jack::ClosureProcessHandler::new(

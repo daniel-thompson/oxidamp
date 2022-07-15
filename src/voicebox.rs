@@ -11,6 +11,42 @@ pub trait Voice {
     fn tune(&mut self, ctx: &AudioContext, freq: f32);
 }
 
+#[derive(Debug, Default)]
+pub struct DetunedPair<T> {
+    voice: [T; 2],
+}
+
+impl<T: Voice> Voice for DetunedPair<T> {
+    fn setup(&mut self, ctx: &AudioContext) {
+        for v in &mut self.voice {
+            v.setup(ctx);
+        }
+    }
+
+    fn trigger(&mut self) {
+        for v in &mut self.voice {
+            v.trigger();
+        }
+    }
+
+    fn mute(&mut self) {
+        for v in &mut self.voice {
+            v.mute();
+        }
+    }
+
+    fn tune(&mut self, ctx: &AudioContext, freq: f32) {
+        self.voice[0].tune(ctx, freq * 0.995);
+        self.voice[1].tune(ctx, freq * 1.005);
+    }
+}
+
+impl<T: SignalGenerator> SignalGenerator for DetunedPair<T> {
+    fn step(&mut self) -> f32 {
+        self.voice[0].step() + self.voice[1].step()
+    }
+}
+
 macro_rules! voicebox {
     ($($num_voices:expr => $name:ident),*) => {
         $(#[derive(Debug, Default)]
