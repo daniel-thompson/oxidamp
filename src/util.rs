@@ -51,7 +51,7 @@ pub fn linear2db(spl: f32) -> f32 {
 
 /// Generate a 31-bit random number.
 ///
-/// Derived from http://www.firstpr.com.au/dsp/rand31/ , this is the
+/// Derived from <http://www.firstpr.com.au/dsp/rand31/>, this is the
 /// Park-Miller "minimal standard" 31 bit pseudo-random number generator,
 /// implemented with David G. Carta's optimization with 32 bit math and
 /// without division.
