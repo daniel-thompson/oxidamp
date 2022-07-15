@@ -18,6 +18,7 @@ pub mod string;
 pub mod tonestack;
 pub mod tubestage;
 pub mod util;
+pub mod voicebox;
 pub mod waveshaper;
 
 pub use amplifier::*;
@@ -37,4 +38,5 @@ pub use string::*;
 pub use tonestack::*;
 pub use tubestage::*;
 pub use util::*;
+pub use voicebox::*;
 pub use waveshaper::*;
