@@ -5,7 +5,7 @@ use crate::*;
 use std::f64::consts::PI;
 use std::iter::zip;
 
-/// Biquad filter coefficients
+/// Biquad filter coefficients.
 ///
 /// The coefficients fully describe the filter but cannot
 /// really be operated on without the rest of the filter state.
@@ -15,6 +15,9 @@ pub struct BiquadCoeff {
     y: [f32; 2],
 }
 
+/// Basic biquad filter.
+///
+/// Currently this is implemented using transposed Direct Form II.
 #[derive(Debug, Default)]
 pub struct Biquad {
     pub coeff: BiquadCoeff,
@@ -52,6 +55,14 @@ impl Filter for Biquad {
     }
 }
 
+/// Biquad filter designer.
+///
+/// Like pretty much every other biquad library on the planet, this library is
+/// based on the famous [Robert Bristow-Johnson cookbook][cookbook].
+///
+/// [cookbook]:
+///     http://www.musicdsp.org/files/Audio-EQ-Cookbook.txt
+///     "Cookbook formulae for audio EQ biquad filter coefficients"
 #[derive(Debug, Default)]
 struct BiquadDesign {
     big_a: f64,
@@ -71,9 +82,9 @@ impl BiquadDesign {
         let mut design: BiquadDesign = Default::default();
 
         /* HACK: Many of the filters are numerically unstable when designed
-         *       for 44.1K. This is a grotty workaround (and insufficient
-         *       to properly clear the test suite) but it stops tintamp being
-         *       a total lemon...
+         *       for 44.1K. This is a grotty workaround but it keeps the
+         *       existing filters working if we implemented this in fixed
+         *       point maths.
          */
         //let mut sfreq = sfreq;
         //if sfreq == 44100 {
