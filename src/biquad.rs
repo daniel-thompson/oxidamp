@@ -21,51 +21,30 @@ pub struct Biquad {
     z: [f32; 2],
 }
 
-impl Biquad {
-    /// Transposed Direct Form II single filter step
-    fn micro_step(&mut self, x: f32, z1: f32, z2: f32) -> (f32, f32, f32) {
+impl Filter for Biquad {
+    fn step(&mut self, x: f32) -> f32 {
         let b0 = self.coeff.x[0];
         let b1 = self.coeff.x[1];
         let b2 = self.coeff.x[2];
         let ma1 = self.coeff.y[0];
         let ma2 = self.coeff.y[1];
 
-        let y = b0 * x + z1;
-        let z1 = b1 * x + ma1 * y + z2;
-        let z2 = b2 * x + ma2 * y;
+        let y = b0 * x + self.z[0];
+        self.z[0] = b1 * x + ma1 * y + self.z[1];
+        self.z[1] = b2 * x + ma2 * y;
 
-        (y, z1, z2)
-    }
-}
-
-impl Filter for Biquad {
-    fn step(&mut self, x: f32) -> f32 {
-        let y;
-        (y, self.z[0], self.z[1]) = self.micro_step(x, self.z[0], self.z[1]);
         y
     }
 
     /// Optimized processing loop for biquad filters
     ///
-    /// TODO: It is very unclear why this function is needed (or put another
-    ///       way, future compiler improvements should make this obsolete.
-    ///
-    /// The only difference between this and the normal processing loop is that
-    /// the history buffer is held in local variables ready for the
-    /// ::micro_step(). In principle that should make no difference because the
-    /// compiler knows that we have mutably borrowed self meaning there is no
-    /// need to store and reload the intermediate values to the actual history
-    /// buffer.
+    /// The code here is identical to [sbuf::Filter::process] but, as of
+    /// rustc 1.62, this results in *much* better code generation
+    /// (>2x faster).
     fn process(&mut self, inbuf: &[f32], outbuf: &mut [f32]) {
-        let mut z1 = self.z[0];
-        let mut z2 = self.z[1];
-
         for (x, y) in zip(inbuf, outbuf) {
-            (*y, z1, z2) = self.micro_step(*x, z1, z2);
+            *y = self.step(*x);
         }
-
-        self.z[0] = z1;
-        self.z[1] = z2;
     }
 
     fn flush(&mut self) {
