@@ -2,6 +2,7 @@
 // Copyright (C) 2022 Daniel Thompson
 
 use crate::*;
+use std::iter::zip;
 
 /// Simple biquad based cabinet simulator.
 ///
@@ -50,6 +51,12 @@ impl Filter for CabinetSimulator {
         spl = self.hpf.step(spl);
         spl = self.lpf0.step(spl);
         self.lpf1.step(spl)
+    }
+
+    fn process(&mut self, inbuf: &[f32], outbuf: &mut [f32]) {
+        for (x, y) in zip(inbuf, outbuf) {
+            *y = self.step(*x);
+        }
     }
 
     fn flush(&mut self) {
