@@ -7,7 +7,13 @@ use std::iter::zip;
 pub type Sample = f32;
 
 pub trait SignalGenerator {
+    /// Generate a single sample.
     fn step(&mut self) -> Sample;
+
+    /// Generate a complete sample buffer.
+    ///
+    /// Most generators can use this simple default implementation that
+    /// calls [SignalGenerator::step] in a loop.
     fn process(&mut self, samples: &mut [Sample]) {
         for spl in samples {
             *spl = self.step();
@@ -16,12 +22,19 @@ pub trait SignalGenerator {
 }
 
 pub trait Filter {
+    /// Process a single sample.
     fn step(&mut self, spl: Sample) -> Sample;
+
+    /// Reset filter state.
     fn flush(&mut self);
 
+    /// Generate a complete sample buffer.
+    ///
+    /// Most filters can use this simple default implementation that
+    /// calls [Filter::step] in a loop.
     fn process(&mut self, inbuf: &[Sample], outbuf: &mut [Sample]) {
-        for (inspl, outspl) in zip(inbuf, outbuf) {
-            *outspl = self.step(*inspl);
+        for (x, y) in zip(inbuf, outbuf) {
+            *y = self.step(*x);
         }
     }
 
