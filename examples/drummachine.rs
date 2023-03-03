@@ -19,6 +19,7 @@ fn main() {
     let ctx = AudioContext::new(client.sample_rate() as i32);
     let mut dm = DrumMachine::default();
     dm.setup(&ctx);
+    let mut reverb = Reverb::default();
 
     let (sender, receiver) = sync_channel(16);
     let _ = sender.try_send(drummachine::Control::BeatsPerMinute(90));
@@ -36,9 +37,14 @@ fn main() {
             let outr = out_port_r.as_mut_slice(ps);
 
             dm.process(outl);
+            reverb.process(outl, outr);
+
+            for (l, r) in outl.iter_mut().zip(outr.iter()) {
+                *l += *r * 0.33;
+            }
 
             // currently there is only one output so we'll just...
-            outr.copy_from_slice(outl);
+            outl.copy_from_slice(outr);
 
             jack::Control::Continue
         },

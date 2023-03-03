@@ -4,6 +4,7 @@
 pub use crate::amplifier::*;
 pub use crate::drummachine::*;
 pub use crate::midi::*;
+pub use crate::reverb::*;
 pub use crate::sbuf::*;
 pub use crate::string::*;
 pub use crate::util::*;
