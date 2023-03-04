@@ -23,7 +23,7 @@ fn main() {
 
     let (sender, receiver) = sync_channel(16);
     let _ = sender.try_send(drummachine::Control::BeatsPerMinute(90));
-    let _ = sender.try_send(drummachine::Control::Pattern(3));
+    let _ = sender.try_send(drummachine::Control::Pattern(Pattern::Rock8Beat));
 
     let process = jack::ClosureProcessHandler::new(
         move |_: &jack::Client, ps: &jack::ProcessScope| -> jack::Control {
@@ -66,10 +66,10 @@ fn main() {
     let mut pattern = cursive::views::SelectView::new().on_select(move |_s, n| {
         let _ = pattern_sender.try_send(drummachine::Control::Pattern(*n));
     });
-    pattern.add_item("4 beat", 0);
-    pattern.add_item("8 beat", 1);
-    pattern.add_item("8 beat with swing", 2);
-    pattern.add_item("8 beat rock", 3);
+    pattern.add_item("4 beat", Pattern::Basic4Beat);
+    pattern.add_item("8 beat", Pattern::Basic8Beat);
+    pattern.add_item("8 beat with swing", Pattern::Swing8Beat);
+    pattern.add_item("8 beat rock", Pattern::Rock8Beat);
 
     siv.add_layer(
         cursive::views::Dialog::around(

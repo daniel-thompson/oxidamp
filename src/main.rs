@@ -11,7 +11,7 @@ struct Stage {
     egui_mq: EguiMq,
     channel: mpsc::SyncSender<Control>,
     bpm: u32,
-    pattern: u32,
+    pattern: Pattern,
 }
 
 fn main() {
@@ -32,7 +32,7 @@ fn main() {
 
     let (sender, receiver) = mpsc::sync_channel(16);
     let _ = sender.try_send(drummachine::Control::BeatsPerMinute(90));
-    let _ = sender.try_send(drummachine::Control::Pattern(3));
+    let _ = sender.try_send(drummachine::Control::Pattern(Pattern::Rock8Beat));
 
     let process = jack::ClosureProcessHandler::new(
         move |_: &jack::Client, ps: &jack::ProcessScope| -> jack::Control {
@@ -87,7 +87,7 @@ impl Stage {
             egui_mq,
             channel,
             bpm: 112,
-            pattern: 3,
+            pattern: Pattern::Rock8Beat,
         }
     }
 }
@@ -97,7 +97,7 @@ impl miniquad::EventHandler for Stage {
 
     fn draw(&mut self, mq_ctx: &mut miniquad::Context) {
         mq_ctx.clear(Some((1., 1., 1., 1.)), None, None);
-        mq_ctx.begin_default_pass(miniquad::PassAction::clear_color(0.66, 0.66, 0.66, 1.0));
+        mq_ctx.begin_default_pass(miniquad::PassAction::clear_color(0.65, 0.70, 0.65, 1.0));
         mq_ctx.end_render_pass();
 
         // Run the UI code:
@@ -139,19 +139,36 @@ impl miniquad::EventHandler for Stage {
                     let _ = self.channel.send(Control::BeatsPerMinute(self.bpm));
                 }
 
-                egui::ComboBox::from_label("Pattern")
+                egui::ComboBox::from_label("pattern")
                     .selected_text(format!("{:?}", self.pattern))
                     .show_ui(ui, |ui| {
                         ui.style_mut().wrap = Some(false);
                         ui.set_min_width(60.0);
                         if ui
-                            .selectable_value(&mut self.pattern, 0, "4 beat")
+                            .selectable_value(&mut self.pattern, Pattern::Basic4Beat, "Basic4Beat")
                             .clicked()
                             || ui
-                                .selectable_value(&mut self.pattern, 3, "8 beat rock")
+                                .selectable_value(
+                                    &mut self.pattern,
+                                    Pattern::Basic8Beat,
+                                    "Basic8Beat",
+                                )
+                                .clicked()
+                            || ui
+                                .selectable_value(
+                                    &mut self.pattern,
+                                    Pattern::Swing8Beat,
+                                    "Swing8Beat",
+                                )
+                                .clicked()
+                            || ui
+                                .selectable_value(
+                                    &mut self.pattern,
+                                    Pattern::Rock8Beat,
+                                    "Rock8Beat",
+                                )
                                 .clicked()
                         {
-                            println!("{}", self.pattern);
                             let _ = self.channel.send(Control::Pattern(self.pattern));
                         }
                     });

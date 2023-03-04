@@ -3,9 +3,17 @@
 
 use crate::*;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pattern {
+    Basic4Beat,
+    Basic8Beat,
+    Swing8Beat,
+    Rock8Beat,
+}
+
 pub enum Control {
     BeatsPerMinute(u32),
-    Pattern(u32),
+    Pattern(Pattern),
 }
 
 const __: u8 = 0;
@@ -13,17 +21,17 @@ const BA: u8 = 0x01;
 const SN: u8 = 0x02;
 const CH: u8 = 0x10;
 
-struct Pattern<const L: usize> {
+struct Sequence<const L: usize> {
     divisions_per_beat: u8,
     pattern: [u8; L],
 }
 
-const BASIC_4BEAT: Pattern<4> = Pattern {
+const BASIC_4BEAT: Sequence<4> = Sequence {
     divisions_per_beat: 1,
     pattern: [CH | BA | __, CH | __ | SN, CH | BA | __, CH | __ | SN],
 };
 
-const BASIC_8BEAT: Pattern<8> = Pattern {
+const BASIC_8BEAT: Sequence<8> = Sequence {
     divisions_per_beat: 2,
     pattern: [
         CH | BA | __,
@@ -37,7 +45,7 @@ const BASIC_8BEAT: Pattern<8> = Pattern {
     ],
 };
 
-const SWING_8BEAT: Pattern<12> = Pattern {
+const SWING_8BEAT: Sequence<12> = Sequence {
     divisions_per_beat: 3,
     pattern: [
         CH | BA | __,
@@ -55,7 +63,7 @@ const SWING_8BEAT: Pattern<12> = Pattern {
     ],
 };
 
-const ROCK_8BEAT: Pattern<8> = Pattern {
+const ROCK_8BEAT: Sequence<8> = Sequence {
     divisions_per_beat: 2,
     pattern: [
         CH | BA | __,
@@ -166,21 +174,24 @@ impl DrumMachine {
             Control::BeatsPerMinute(bpm) => {
                 self.bpm = *bpm;
             }
-            Control::Pattern(pattern) => {
-                if *pattern == 0 {
+            Control::Pattern(pattern) => match pattern {
+                Pattern::Basic4Beat => {
                     self.divisions_per_beat = BASIC_4BEAT.divisions_per_beat;
                     self.pattern = &BASIC_4BEAT.pattern;
-                } else if *pattern == 1 {
+                }
+                Pattern::Basic8Beat => {
                     self.divisions_per_beat = BASIC_8BEAT.divisions_per_beat;
                     self.pattern = &BASIC_8BEAT.pattern;
-                } else if *pattern == 2 {
+                }
+                Pattern::Swing8Beat => {
                     self.divisions_per_beat = SWING_8BEAT.divisions_per_beat;
                     self.pattern = &SWING_8BEAT.pattern;
-                } else {
+                }
+                Pattern::Rock8Beat => {
                     self.divisions_per_beat = ROCK_8BEAT.divisions_per_beat;
                     self.pattern = &ROCK_8BEAT.pattern;
-                };
-            }
+                }
+            },
         }
         self.update();
     }
