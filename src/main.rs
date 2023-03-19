@@ -4,56 +4,79 @@
 use egui_miniquad::EguiMq;
 use miniquad;
 use oxidamp::drummachine;
+use oxidamp::metronome;
 use oxidamp::prelude::*;
 use std::sync::mpsc;
 
+enum Control {
+    DrumMachine(drummachine::Control),
+    Metronome(metronome::Control),
+}
+
+type ControlSender = mpsc::SyncSender<Control>;
+
 struct Stage {
     egui_mq: EguiMq,
-    channel: mpsc::SyncSender<Control>,
-    bpm: u32,
-    pattern: Pattern,
+    channel: ControlSender,
+    drum_machine: DrumMachineApp,
+    metronome: MetronomeApp,
 }
 
 fn main() {
     let (client, _status) =
         jack::Client::new("Oxidamp", jack::ClientOptions::NO_START_SERVER).unwrap();
 
-    let mut out_port_l = client
+    let mut drums_l = client
         .register_port("drums_l", jack::AudioOut::default())
         .unwrap();
-    let mut out_port_r = client
+    let mut drums_r = client
         .register_port("drums_r", jack::AudioOut::default())
+        .unwrap();
+    let mut metronome_out = client
+        .register_port("metronome", jack::AudioOut::default())
         .unwrap();
 
     let ctx = AudioContext::new(client.sample_rate() as i32);
+
     let mut dm = DrumMachine::default();
     dm.setup(&ctx);
+    dm.set_control(&drummachine::Control::BeatsPerMinute(90));
+    dm.set_control(&drummachine::Control::Pattern(Pattern::Rock8Beat));
     let mut reverb = Reverb::default();
 
+    let mut metronome = Metronome::default();
+    metronome.setup(&ctx);
+    metronome.set_control(&metronome::Control::BeatsPerMinute(120));
+    metronome.set_control(&metronome::Control::BeatsPerBar(4));
+
     let (sender, receiver) = mpsc::sync_channel(16);
-    let _ = sender.try_send(drummachine::Control::BeatsPerMinute(90));
-    let _ = sender.try_send(drummachine::Control::Pattern(Pattern::Rock8Beat));
 
     let process = jack::ClosureProcessHandler::new(
         move |_: &jack::Client, ps: &jack::ProcessScope| -> jack::Control {
             // handle any pending control updates
             while let Ok(ctrl) = receiver.try_recv() {
-                dm.set_control(&ctrl);
+                match ctrl {
+                    Control::DrumMachine(ctrl) => dm.set_control(&ctrl),
+                    Control::Metronome(ctrl) => metronome.set_control(&ctrl),
+                }
             }
 
             // get the slices (all shouuld be the same length)
-            let outl = out_port_l.as_mut_slice(ps);
-            let outr = out_port_r.as_mut_slice(ps);
+            let dm_l = drums_l.as_mut_slice(ps);
+            let dm_r = drums_r.as_mut_slice(ps);
+            let m_out = metronome_out.as_mut_slice(ps);
 
-            dm.process(outl);
-            reverb.process(outl, outr);
+            dm.process(dm_l);
+            reverb.process(dm_l, dm_r);
 
-            for (l, r) in outl.iter_mut().zip(outr.iter()) {
+            for (l, r) in dm_l.iter_mut().zip(dm_r.iter()) {
                 *l += *r * 0.33;
             }
 
             // currently there is only one output so we'll just...
-            outl.copy_from_slice(outr);
+            dm_l.copy_from_slice(dm_r);
+
+            metronome.process(m_out);
 
             jack::Control::Continue
         },
@@ -86,8 +109,80 @@ impl Stage {
         Self {
             egui_mq,
             channel,
+            drum_machine: DrumMachineApp::new(),
+            metronome: MetronomeApp::new(),
+        }
+    }
+}
+
+struct DrumMachineApp {
+    bpm: u32,
+    pattern: Pattern,
+}
+
+impl DrumMachineApp {
+    fn new() -> Self {
+        Self {
             bpm: 112,
             pattern: Pattern::Rock8Beat,
+        }
+    }
+
+    fn draw(&mut self, ui: &mut egui::Ui, ctrl_channel: &ControlSender) {
+        ui.heading("Configuration");
+        if ui
+            .add(egui::Slider::new(&mut self.bpm, 40..=240).text("beats per minute"))
+            .changed()
+        {
+            let _ = ctrl_channel.send(Control::DrumMachine(drummachine::Control::BeatsPerMinute(
+                self.bpm,
+            )));
+        }
+
+        egui::ComboBox::from_label("pattern")
+            .selected_text(format!("{:?}", self.pattern))
+            .show_ui(ui, |ui| {
+                ui.style_mut().wrap = Some(false);
+                ui.set_min_width(60.0);
+                if ui
+                    .selectable_value(&mut self.pattern, Pattern::Basic4Beat, "Basic4Beat")
+                    .clicked()
+                    || ui
+                        .selectable_value(&mut self.pattern, Pattern::Basic8Beat, "Basic8Beat")
+                        .clicked()
+                    || ui
+                        .selectable_value(&mut self.pattern, Pattern::Swing8Beat, "Swing8Beat")
+                        .clicked()
+                    || ui
+                        .selectable_value(&mut self.pattern, Pattern::Rock8Beat, "Rock8Beat")
+                        .clicked()
+                {
+                    let _ = ctrl_channel.send(Control::DrumMachine(
+                        drummachine::Control::BeatsPerMinute(self.bpm),
+                    ));
+                }
+            });
+    }
+}
+
+struct MetronomeApp {
+    bpm: u32,
+}
+
+impl MetronomeApp {
+    fn new() -> Self {
+        Self { bpm: 112 }
+    }
+
+    fn draw(&mut self, ui: &mut egui::Ui, ctrl_channel: &ControlSender) {
+        ui.heading("Configuration");
+        if ui
+            .add(egui::Slider::new(&mut self.bpm, 40..=240).text("beats per minute"))
+            .changed()
+        {
+            let _ = ctrl_channel.send(Control::Metronome(metronome::Control::BeatsPerMinute(
+                self.bpm,
+            )));
         }
     }
 }
@@ -107,6 +202,9 @@ impl miniquad::EventHandler for Stage {
                     #[cfg(not(target_arch = "wasm32"))]
                     {
                         ui.menu_button("🎸", |ui| {
+                            if ui.button("Organize windows").clicked() {
+                                ui.ctx().memory_mut(|mem| mem.reset_areas());
+                            }
                             if ui.button("Quit").clicked() {
                                 std::process::exit(0);
                             }
@@ -131,49 +229,11 @@ impl miniquad::EventHandler for Stage {
             });
 
             egui::Window::new("Drum machine").show(ctx, |ui| {
-                ui.heading("Configuration");
-                if ui
-                    .add(egui::Slider::new(&mut self.bpm, 40..=240).text("beats per minute"))
-                    .changed()
-                {
-                    let _ = self.channel.send(Control::BeatsPerMinute(self.bpm));
-                }
+                self.drum_machine.draw(ui, &self.channel);
+            });
 
-                egui::ComboBox::from_label("pattern")
-                    .selected_text(format!("{:?}", self.pattern))
-                    .show_ui(ui, |ui| {
-                        ui.style_mut().wrap = Some(false);
-                        ui.set_min_width(60.0);
-                        if ui
-                            .selectable_value(&mut self.pattern, Pattern::Basic4Beat, "Basic4Beat")
-                            .clicked()
-                            || ui
-                                .selectable_value(
-                                    &mut self.pattern,
-                                    Pattern::Basic8Beat,
-                                    "Basic8Beat",
-                                )
-                                .clicked()
-                            || ui
-                                .selectable_value(
-                                    &mut self.pattern,
-                                    Pattern::Swing8Beat,
-                                    "Swing8Beat",
-                                )
-                                .clicked()
-                            || ui
-                                .selectable_value(
-                                    &mut self.pattern,
-                                    Pattern::Rock8Beat,
-                                    "Rock8Beat",
-                                )
-                                .clicked()
-                        {
-                            let _ = self.channel.send(Control::Pattern(self.pattern));
-                        }
-                    });
-
-                ui.heading("Control");
+            egui::Window::new("Metronome").show(ctx, |ui| {
+                self.metronome.draw(ui, &self.channel);
             });
         });
 
