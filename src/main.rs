@@ -8,19 +8,18 @@ use oxidamp::metronome;
 use oxidamp::prelude::*;
 use std::sync::mpsc;
 
+enum Active {
+    DrumMachine(bool),
+    Metronome(bool),
+}
+
 enum Control {
+    Application(Active),
     DrumMachine(drummachine::Control),
     Metronome(metronome::Control),
 }
 
 type ControlSender = mpsc::SyncSender<Control>;
-
-struct Stage {
-    egui_mq: EguiMq,
-    channel: ControlSender,
-    drum_machine: DrumMachineApp,
-    metronome: MetronomeApp,
-}
 
 fn main() {
     let (client, _status) =
@@ -38,12 +37,14 @@ fn main() {
 
     let ctx = AudioContext::new(client.sample_rate() as i32);
 
+    let mut dm_active = true;
     let mut dm = DrumMachine::default();
     dm.setup(&ctx);
     dm.set_control(&drummachine::Control::BeatsPerMinute(90));
     dm.set_control(&drummachine::Control::Pattern(Pattern::Rock8Beat));
     let mut reverb = Reverb::default();
 
+    let mut metronome_active = false;
     let mut metronome = Metronome::default();
     metronome.setup(&ctx);
     metronome.set_control(&metronome::Control::BeatsPerMinute(120));
@@ -56,27 +57,34 @@ fn main() {
             // handle any pending control updates
             while let Ok(ctrl) = receiver.try_recv() {
                 match ctrl {
+                    Control::Application(app) => match app {
+                        Active::DrumMachine(active) => dm_active = active,
+                        Active::Metronome(active) => metronome_active = active,
+                    },
                     Control::DrumMachine(ctrl) => dm.set_control(&ctrl),
                     Control::Metronome(ctrl) => metronome.set_control(&ctrl),
                 }
             }
 
-            // get the slices (all shouuld be the same length)
-            let dm_l = drums_l.as_mut_slice(ps);
-            let dm_r = drums_r.as_mut_slice(ps);
-            let m_out = metronome_out.as_mut_slice(ps);
+            if dm_active {
+                let dm_l = drums_l.as_mut_slice(ps);
+                let dm_r = drums_r.as_mut_slice(ps);
 
-            dm.process(dm_l);
-            reverb.process(dm_l, dm_r);
+                dm.process(dm_l);
+                reverb.process(dm_l, dm_r);
 
-            for (l, r) in dm_l.iter_mut().zip(dm_r.iter()) {
-                *l += *r * 0.33;
+                for (l, r) in dm_l.iter_mut().zip(dm_r.iter()) {
+                    *l += *r * 0.33;
+                }
+
+                // currently there is only one output so we'll just...
+                dm_l.copy_from_slice(dm_r);
             }
 
-            // currently there is only one output so we'll just...
-            dm_l.copy_from_slice(dm_r);
-
-            metronome.process(m_out);
+            if metronome_active {
+                let m_out = metronome_out.as_mut_slice(ps);
+                metronome.process(m_out);
+            }
 
             jack::Control::Continue
         },
@@ -98,6 +106,14 @@ fn main() {
     active_client.deactivate().unwrap();
 }
 
+struct Stage {
+    egui_mq: EguiMq,
+    channel: ControlSender,
+    settings: bool,
+    drum_machine: DrumMachineApp,
+    metronome: MetronomeApp,
+}
+
 impl Stage {
     fn new(mq_ctx: &mut miniquad::Context, channel: mpsc::SyncSender<Control>) -> Self {
         let egui_mq = EguiMq::new(mq_ctx);
@@ -109,6 +125,7 @@ impl Stage {
         Self {
             egui_mq,
             channel,
+            settings: false,
             drum_machine: DrumMachineApp::new(),
             metronome: MetronomeApp::new(),
         }
@@ -116,6 +133,7 @@ impl Stage {
 }
 
 struct DrumMachineApp {
+    active: bool,
     bpm: u32,
     pattern: Pattern,
 }
@@ -123,13 +141,13 @@ struct DrumMachineApp {
 impl DrumMachineApp {
     fn new() -> Self {
         Self {
+            active: true,
             bpm: 112,
             pattern: Pattern::Rock8Beat,
         }
     }
 
     fn draw(&mut self, ui: &mut egui::Ui, ctrl_channel: &ControlSender) {
-        ui.heading("Configuration");
         if ui
             .add(egui::Slider::new(&mut self.bpm, 40..=240).text("beats per minute"))
             .changed()
@@ -166,16 +184,19 @@ impl DrumMachineApp {
 }
 
 struct MetronomeApp {
+    active: bool,
     bpm: u32,
 }
 
 impl MetronomeApp {
     fn new() -> Self {
-        Self { bpm: 112 }
+        Self {
+            active: false,
+            bpm: 112,
+        }
     }
 
     fn draw(&mut self, ui: &mut egui::Ui, ctrl_channel: &ControlSender) {
-        ui.heading("Configuration");
         if ui
             .add(egui::Slider::new(&mut self.bpm, 40..=240).text("beats per minute"))
             .changed()
@@ -199,42 +220,75 @@ impl miniquad::EventHandler for Stage {
         self.egui_mq.run(mq_ctx, |_mq_ctx, ctx| {
             egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
                 egui::menu::bar(ui, |ui| {
-                    #[cfg(not(target_arch = "wasm32"))]
-                    {
-                        ui.menu_button("🎸", |ui| {
-                            if ui.button("Organize windows").clicked() {
-                                ui.ctx().memory_mut(|mem| mem.reset_areas());
-                            }
+                    ui.menu_button("🎸", |ui| {
+                        if ui.button("Organize windows").clicked() {
+                            ui.ctx().memory_mut(|mem| mem.reset_areas());
+                        }
+                        #[cfg(not(target_arch = "wasm32"))]
+                        {
                             if ui.button("Quit").clicked() {
                                 std::process::exit(0);
                             }
-                        });
-                        egui::widgets::global_dark_light_mode_switch(ui);
-                    }
+                        }
+                    });
+                    egui::widgets::global_dark_light_mode_switch(ui);
                 });
             });
 
-            let mut pixels_per_point = ctx.pixels_per_point();
-            egui::Window::new("Settings").show(ctx, |ui| {
-                let response = ui
-                    .add(
-                        egui::Slider::new(&mut pixels_per_point, 0.75..=3.0)
-                            .logarithmic(true)
-                            .text("scale"),
-                    )
-                    .on_hover_text("Physical pixels per logical point");
-                if response.clicked() || response.drag_released() {
-                    ctx.set_pixels_per_point(pixels_per_point);
-                }
-            });
+            egui::SidePanel::right("window_list")
+                .resizable(false)
+                .default_width(125.0)
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
+                            ui.toggle_value(&mut self.settings, "Settings");
+                            if ui
+                                .toggle_value(&mut self.drum_machine.active, "Drum Machine")
+                                .clicked()
+                            {
+                                let _ = self.channel.send(Control::Application(
+                                    Active::DrumMachine(self.drum_machine.active),
+                                ));
+                            }
+                            if ui
+                                .toggle_value(&mut self.metronome.active, "Metronome")
+                                .clicked()
+                            {
+                                let _ = self.channel.send(Control::Application(Active::Metronome(
+                                    self.metronome.active,
+                                )));
+                            }
+                        });
+                    });
+                });
 
-            egui::Window::new("Drum machine").show(ctx, |ui| {
-                self.drum_machine.draw(ui, &self.channel);
-            });
+            if self.settings {
+                let mut pixels_per_point = ctx.pixels_per_point();
+                egui::Window::new("Settings").show(ctx, |ui| {
+                    let response = ui
+                        .add(
+                            egui::Slider::new(&mut pixels_per_point, 0.75..=3.0)
+                                .logarithmic(true)
+                                .text("scale"),
+                        )
+                        .on_hover_text("Physical pixels per logical point");
+                    if response.clicked() || response.drag_released() {
+                        ctx.set_pixels_per_point(pixels_per_point);
+                    }
+                });
+            }
 
-            egui::Window::new("Metronome").show(ctx, |ui| {
-                self.metronome.draw(ui, &self.channel);
-            });
+            if self.drum_machine.active {
+                egui::Window::new("Drum machine").show(ctx, |ui| {
+                    self.drum_machine.draw(ui, &self.channel);
+                });
+            }
+
+            if self.metronome.active {
+                egui::Window::new("Metronome").show(ctx, |ui| {
+                    self.metronome.draw(ui, &self.channel);
+                });
+            }
         });
 
         self.egui_mq.draw(mq_ctx);
