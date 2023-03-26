@@ -12,6 +12,7 @@ enum Active {
     Amplifier(bool),
     DrumMachine(bool),
     Metronome(bool),
+    Synth(bool),
 }
 
 enum Control {
@@ -41,6 +42,12 @@ fn main() {
     let mut metronome_out = client
         .register_port("metronome", jack::AudioOut::default())
         .unwrap();
+    let synth_in = client
+        .register_port("synth_in", jack::MidiIn::default())
+        .unwrap();
+    let mut synth_out = client
+        .register_port("synth_out", jack::AudioOut::default())
+        .unwrap();
 
     let ctx = AudioContext::new(client.sample_rate() as i32);
 
@@ -61,6 +68,10 @@ fn main() {
     metronome.set_control(&metronome::Control::BeatsPerMinute(120));
     metronome.set_control(&metronome::Control::BeatsPerBar(4));
 
+    let mut synth_active = false;
+    let mut synth = VoiceBox::<DetunedPair<KarplusStrong>>::default();
+    synth.setup(&ctx);
+
     let (sender, receiver) = mpsc::sync_channel(16);
 
     let process = jack::ClosureProcessHandler::new(
@@ -72,6 +83,7 @@ fn main() {
                         Active::Amplifier(active) => amp_active = active,
                         Active::DrumMachine(active) => dm_active = active,
                         Active::Metronome(active) => metronome_active = active,
+                        Active::Synth(active) => synth_active = active,
                     },
                     Control::DrumMachine(ctrl) => dm.set_control(&ctrl),
                     Control::Metronome(ctrl) => metronome.set_control(&ctrl),
@@ -105,6 +117,17 @@ fn main() {
                 metronome.process(m_out);
             }
 
+            if synth_active {
+                let events = synth_in.iter(ps);
+                for evt in events {
+                    let c: MidiEvent = evt.into();
+                    synth.midi(&ctx, &c.data);
+                }
+
+                let outbuf = synth_out.as_mut_slice(ps);
+                synth.process(outbuf);
+            }
+
             jack::Control::Continue
         },
     );
@@ -132,6 +155,7 @@ struct Stage {
     amplifier: AmplifierApp,
     drum_machine: DrumMachineApp,
     metronome: MetronomeApp,
+    synth: SynthApp,
 }
 
 impl Stage {
@@ -149,6 +173,7 @@ impl Stage {
             amplifier: AmplifierApp::new(),
             drum_machine: DrumMachineApp::new(),
             metronome: MetronomeApp::new(),
+            synth: SynthApp::new(),
         }
     }
 }
@@ -253,6 +278,23 @@ impl MetronomeApp {
     }
 }
 
+struct SynthApp {
+    active: bool,
+    tone: Option<u8>,
+}
+
+impl SynthApp {
+    fn new() -> Self {
+        Self {
+            active: false,
+            tone: None,
+        }
+    }
+
+    fn draw(&mut self, ui: &mut egui::Ui, ctrl_channel: &ControlSender) {
+    }
+}
+
 impl miniquad::EventHandler for Stage {
     fn update(&mut self, _ctx: &mut miniquad::Context) {}
 
@@ -311,6 +353,11 @@ impl miniquad::EventHandler for Stage {
                                     self.metronome.active,
                                 )));
                             }
+                            if ui.toggle_value(&mut self.synth.active, "Synth").clicked() {
+                                let _ = self
+                                    .channel
+                                    .send(Control::Application(Active::Synth(self.synth.active)));
+                            }
                         });
                     });
                 });
@@ -346,6 +393,12 @@ impl miniquad::EventHandler for Stage {
             if self.metronome.active {
                 egui::Window::new("Metronome").show(ctx, |ui| {
                     self.metronome.draw(ui, &self.channel);
+                });
+            }
+
+            if self.synth.active {
+                egui::Window::new("synth").show(ctx, |ui| {
+                    self.synth.draw(ui, &self.channel);
                 });
             }
         });
