@@ -9,6 +9,7 @@ use oxidamp::prelude::*;
 use std::sync::mpsc;
 
 enum Active {
+    Amplifier(bool),
     DrumMachine(bool),
     Metronome(bool),
 }
@@ -25,6 +26,12 @@ fn main() {
     let (client, _status) =
         jack::Client::new("Oxidamp", jack::ClientOptions::NO_START_SERVER).unwrap();
 
+    let amp_in = client
+        .register_port("amp_in", jack::AudioIn::default())
+        .unwrap();
+    let mut amp_out = client
+        .register_port("amp", jack::AudioOut::default())
+        .unwrap();
     let mut drums_l = client
         .register_port("drums_l", jack::AudioOut::default())
         .unwrap();
@@ -36,6 +43,10 @@ fn main() {
         .unwrap();
 
     let ctx = AudioContext::new(client.sample_rate() as i32);
+
+    let mut amp_active = true;
+    let mut amp = Amplifier::default();
+    amp.setup(&ctx);
 
     let mut dm_active = true;
     let mut dm = DrumMachine::default();
@@ -58,12 +69,20 @@ fn main() {
             while let Ok(ctrl) = receiver.try_recv() {
                 match ctrl {
                     Control::Application(app) => match app {
+                        Active::Amplifier(active) => amp_active = active,
                         Active::DrumMachine(active) => dm_active = active,
                         Active::Metronome(active) => metronome_active = active,
                     },
                     Control::DrumMachine(ctrl) => dm.set_control(&ctrl),
                     Control::Metronome(ctrl) => metronome.set_control(&ctrl),
                 }
+            }
+
+            if amp_active {
+                let input = amp_in.as_slice(ps);
+                let output = amp_out.as_mut_slice(ps);
+
+                amp.process(input, output);
             }
 
             if dm_active {
@@ -110,6 +129,7 @@ struct Stage {
     egui_mq: EguiMq,
     channel: ControlSender,
     settings: bool,
+    amplifier: AmplifierApp,
     drum_machine: DrumMachineApp,
     metronome: MetronomeApp,
 }
@@ -126,9 +146,34 @@ impl Stage {
             egui_mq,
             channel,
             settings: false,
+            amplifier: AmplifierApp::new(),
             drum_machine: DrumMachineApp::new(),
             metronome: MetronomeApp::new(),
         }
+    }
+}
+
+struct AmplifierApp {
+    active: bool,
+    bass: u32,
+    mid: u32,
+    treble: u32,
+}
+
+impl AmplifierApp {
+    fn new() -> Self {
+        Self {
+            active: true,
+            bass: 50,
+            mid: 50,
+            treble: 50,
+        }
+    }
+
+    fn draw(&mut self, ui: &mut egui::Ui, _ctrl_channel: &ControlSender) {
+        ui.add(egui::Slider::new(&mut self.bass, 0..=100).text("bass"));
+        ui.add(egui::Slider::new(&mut self.mid, 0..=100).text("mid"));
+        ui.add(egui::Slider::new(&mut self.treble, 0..=100).text("treble"));
     }
 }
 
@@ -243,6 +288,14 @@ impl miniquad::EventHandler for Stage {
                         ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
                             ui.toggle_value(&mut self.settings, "Settings");
                             if ui
+                                .toggle_value(&mut self.amplifier.active, "Amplifier")
+                                .clicked()
+                            {
+                                let _ = self.channel.send(Control::Application(Active::Amplifier(
+                                    self.amplifier.active,
+                                )));
+                            }
+                            if ui
                                 .toggle_value(&mut self.drum_machine.active, "Drum Machine")
                                 .clicked()
                             {
@@ -275,6 +328,12 @@ impl miniquad::EventHandler for Stage {
                     if response.clicked() || response.drag_released() {
                         ctx.set_pixels_per_point(pixels_per_point);
                     }
+                });
+            }
+
+            if self.amplifier.active {
+                egui::Window::new("Amplifier").show(ctx, |ui| {
+                    self.amplifier.draw(ui, &self.channel);
                 });
             }
 
