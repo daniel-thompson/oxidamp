@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright (C) 2023 Daniel Thompson
 
+mod gui;
+
 use egui_miniquad::EguiMq;
 use miniquad;
 use oxidamp::drummachine;
@@ -19,6 +21,7 @@ enum Control {
     Application(Active),
     DrumMachine(drummachine::Control),
     Metronome(metronome::Control),
+    Midi(MidiData),
 }
 
 type ControlSender = mpsc::SyncSender<Control>;
@@ -87,6 +90,7 @@ fn main() {
                     },
                     Control::DrumMachine(ctrl) => dm.set_control(&ctrl),
                     Control::Metronome(ctrl) => metronome.set_control(&ctrl),
+                    Control::Midi(mididata) => synth.midi(&ctx, &mididata),
                 }
             }
 
@@ -292,6 +296,24 @@ impl SynthApp {
     }
 
     fn draw(&mut self, ui: &mut egui::Ui, ctrl_channel: &ControlSender) {
+        let mut tone = None;
+        ui.add(gui::keyboard(&mut tone));
+
+        // generate the appropriate midi events
+        if self.tone != tone {
+            if let Some(tone) = self.tone {
+                let note = MidiNote::new(tone + 36, 127);
+                let note_off = MidiData::NoteOff(note);
+                let _ = ctrl_channel.send(Control::Midi(note_off));
+            }
+
+            self.tone = tone;
+            if let Some(tone) = tone {
+                let note = MidiNote::new(tone + 36, 127);
+                let note_on = MidiData::NoteOn(note);
+                let _ = ctrl_channel.send(Control::Midi(note_on));
+            }
+        }
     }
 }
 
