@@ -4,45 +4,54 @@
 use crate::*;
 
 #[derive(Copy, Clone, Debug, Default)]
-pub struct ToneStackControls {
-    bass: f32,
-    mid: f32,
-    treble: f32,
-    gain: f32,
+pub struct ToneStackConfig {
+    pub bass: f32,
+    pub mid: f32,
+    pub treble: f32,
+    pub gain: f32,
 }
 
 #[derive(Debug, Default)]
 pub struct ToneStack {
-    pub controls: ToneStackControls,
+    config: ToneStackConfig,
 
     ctx: AudioContext,
 
     bass_shelf: Biquad,
     treble_shelf: Biquad,
-    gain: f32,
+    linear_gain: f32,
 }
 
 impl ToneStack {
     pub fn setup(&mut self, ctx: &AudioContext) {
         self.ctx = *ctx;
-        self.gain = 1.0;
-        self.update();
+        self.linear_gain = 1.0;
+        self.update_filters();
     }
 
-    pub fn update(&mut self) {
+    pub fn config(&mut self) -> ToneStackConfig {
+        self.config
+    }
+
+    pub fn set_config(&mut self, config: ToneStackConfig) {
+        self.config = config;
+        self.update_filters();
+    }
+
+    fn update_filters(&mut self) {
         // mid takes effect solely by influencing other controls
-        let mid = self.controls.mid;
+        let mid = self.config.mid;
 
         // calculate the changes
-        let bass = self.controls.bass - mid;
-        let treble = self.controls.treble - mid;
-        let gain = self.controls.gain + mid;
+        let bass = self.config.bass - mid;
+        let treble = self.config.treble - mid;
+        let gain = self.config.gain + mid;
 
         // design the filters and convert the gain to linear
         self.bass_shelf.lowshelf(&self.ctx, 300, bass as f64, 0.8);
         self.treble_shelf
             .highshelf(&self.ctx, 1000, treble as f64, 0.8);
-        self.gain = db2linear(gain);
+        self.linear_gain = db2linear(gain);
     }
 }
 
@@ -51,7 +60,7 @@ impl Filter for ToneStack {
         let mut spl = spl;
         spl = self.bass_shelf.step(spl);
         spl = self.treble_shelf.step(spl);
-        spl * self.gain
+        spl * self.linear_gain
     }
 
     fn flush(&mut self) {
@@ -103,8 +112,10 @@ mod tests {
         let ctx = AudioContext::new(48000);
         let mut tone = ToneStack::default();
         tone.setup(&ctx);
-        tone.controls.gain = -24.0;
-        tone.update();
+        tone.set_config(ToneStackConfig {
+            gain: -24.0,
+            ..Default::default()
+        });
 
         assert!(check_response(&ctx, &mut tone, 100, -24.0));
         assert!(check_response(&ctx, &mut tone, 550, -24.0));
@@ -116,8 +127,10 @@ mod tests {
         let ctx = AudioContext::new(48000);
         let mut tone = ToneStack::default();
         tone.setup(&ctx);
-        tone.controls.gain = 24.0;
-        tone.update();
+        tone.set_config(ToneStackConfig {
+            gain: 24.0,
+            ..Default::default()
+        });
 
         assert!(check_response(&ctx, &mut tone, 100, 24.0));
         assert!(check_response(&ctx, &mut tone, 550, 24.0));
@@ -129,8 +142,10 @@ mod tests {
         let ctx = AudioContext::new(48000);
         let mut tone = ToneStack::default();
         tone.setup(&ctx);
-        tone.controls.bass = -24.0;
-        tone.update();
+        tone.set_config(ToneStackConfig {
+            bass: -24.0,
+            ..Default::default()
+        });
 
         assert!(check_response(&ctx, &mut tone, 100, -24.0));
         assert!(check_response(&ctx, &mut tone, 550, -3.0));
@@ -143,8 +158,10 @@ mod tests {
         let ctx = AudioContext::new(48000);
         let mut tone = ToneStack::default();
         tone.setup(&ctx);
-        tone.controls.bass = 24.0;
-        tone.update();
+        tone.set_config(ToneStackConfig {
+            bass: 24.0,
+            ..Default::default()
+        });
 
         assert!(check_response(&ctx, &mut tone, 100, 24.0));
         assert!(check_response(&ctx, &mut tone, 550, 3.0));
@@ -157,8 +174,10 @@ mod tests {
         let ctx = AudioContext::new(48000);
         let mut tone = ToneStack::default();
         tone.setup(&ctx);
-        tone.controls.mid = -24.0;
-        tone.update();
+        tone.set_config(ToneStackConfig {
+            mid: -24.0,
+            ..Default::default()
+        });
 
         assert!(check_response(&ctx, &mut tone, 100, 0.0));
         assert!(check_response(&ctx, &mut tone, 550, -18.0));
@@ -170,8 +189,10 @@ mod tests {
         let ctx = AudioContext::new(48000);
         let mut tone = ToneStack::default();
         tone.setup(&ctx);
-        tone.controls.mid = 24.0;
-        tone.update();
+        tone.set_config(ToneStackConfig {
+            mid: 24.0,
+            ..Default::default()
+        });
 
         assert!(check_response(&ctx, &mut tone, 100, 0.0));
         assert!(check_response(&ctx, &mut tone, 550, 18.0));
@@ -183,8 +204,10 @@ mod tests {
         let ctx = AudioContext::new(48000);
         let mut tone = ToneStack::default();
         tone.setup(&ctx);
-        tone.controls.treble = -24.0;
-        tone.update();
+        tone.set_config(ToneStackConfig {
+            treble: -24.0,
+            ..Default::default()
+        });
 
         assert!(check_response(&ctx, &mut tone, 100, 0.0));
         assert!(check_response(&ctx, &mut tone, 300, 0.0));
@@ -197,8 +220,10 @@ mod tests {
         let ctx = AudioContext::new(48000);
         let mut tone = ToneStack::default();
         tone.setup(&ctx);
-        tone.controls.treble = 24.0;
-        tone.update();
+        tone.set_config(ToneStackConfig {
+            treble: 24.0,
+            ..Default::default()
+        });
 
         assert!(check_response(&ctx, &mut tone, 100, 0.0));
         assert!(check_response(&ctx, &mut tone, 300, 0.0));

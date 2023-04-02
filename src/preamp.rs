@@ -3,9 +3,14 @@
 
 use crate::*;
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct PreampConfig {
+    pub gain: f32,
+}
+
 #[derive(Debug, Default)]
 pub struct Preamp {
-    gain: f32,
+    config: PreampConfig,
     //model: PreampModel
     num_stages: usize,
     stages: [TubeStage; 3],
@@ -13,15 +18,26 @@ pub struct Preamp {
 
 impl Preamp {
     pub fn setup(&mut self, ctx: &AudioContext) {
-        self.gain = 0.0;
         self.num_stages = 3;
         self.stages[0].setup(ctx, Tube::Tube12AX7Ri68K, -4.0, 2700.0, 22570, 86);
-        self.stages[1].setup(ctx, Tube::Tube12AX7Ri250K, self.gain, 1500.0, 6531, 132);
+        self.stages[1].setup(
+            ctx,
+            Tube::Tube12AX7Ri250K,
+            self.config.gain,
+            1500.0,
+            6531,
+            132,
+        );
         self.stages[2].setup(ctx, Tube::Tube12AX7Ri250K, -14.0, 820.0, 6531, 194);
     }
 
-    pub fn set_gain(&mut self, dbgain: f32) {
-        self.stages[1].set_gain(dbgain);
+    pub fn get_config(&self) -> PreampConfig {
+        self.config
+    }
+
+    pub fn set_config(&mut self, config: PreampConfig) {
+        self.config = config;
+        self.stages[1].set_gain(self.config.gain);
     }
 }
 
@@ -113,7 +129,7 @@ mod tests {
         // This is *huge* level of gain but this is currently a clean model
         // so we won't even start to saturate until we're cranked to at least
         // 40dB
-        pre.set_gain(72.0);
+        pre.set_config(PreampConfig { gain: 72.0 });
 
         // Can't settle with such a massive gain
         //settle(&mut pre, &mut outbuf);

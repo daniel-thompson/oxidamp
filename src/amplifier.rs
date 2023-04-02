@@ -3,9 +3,15 @@
 
 use crate::*;
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct AmplifierConfig {
+    pub preamp: PreampConfig,
+    pub tonestack: ToneStackConfig,
+}
+
 #[derive(Debug, Default)]
 pub struct Amplifier {
-    pub controls: ToneStackControls,
+    config: AmplifierConfig,
 
     preamp: Preamp,
     tonestack: ToneStack,
@@ -19,9 +25,13 @@ impl Amplifier {
         self.cabsim.setup(ctx);
     }
 
-    pub fn update(&mut self) {
-        self.tonestack.controls = self.controls;
-        self.tonestack.update();
+    pub fn config(&self) -> AmplifierConfig {
+        self.config
+    }
+
+    pub fn set_config(&mut self, config: AmplifierConfig) {
+        self.preamp.set_config(config.preamp);
+        self.tonestack.set_config(config.tonestack);
     }
 }
 

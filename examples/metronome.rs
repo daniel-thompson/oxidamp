@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Copyright (C) 2022 Daniel Thompson
+// Copyright (C) 2022, 2023 Daniel Thompson
 
-use oxidamp::metronome;
+use cursive::views::*;
 use oxidamp::prelude::*;
-use std::sync::mpsc::sync_channel;
+use std::{cell::Cell, rc::Rc, sync::mpsc};
 
 fn main() {
     let (client, _status) =
@@ -16,18 +16,17 @@ fn main() {
     let ctx = AudioContext::new(client.sample_rate() as i32);
     let mut metronome = Metronome::default();
     metronome.setup(&ctx);
+    let config = Rc::new(Cell::new(metronome.config()));
 
-    let (sender, receiver) = sync_channel(16);
-    let _ = sender.try_send(metronome::Control::BeatsPerMinute(90));
+    let (sender, receiver) = mpsc::sync_channel(16);
 
     let process = jack::ClosureProcessHandler::new(
         move |_: &jack::Client, ps: &jack::ProcessScope| -> jack::Control {
             // handle any pending control updates
-            while let Ok(ctrl) = receiver.try_recv() {
-                metronome.set_control(&ctrl);
+            while let Ok(cfg) = receiver.try_recv() {
+                metronome.set_config(cfg);
             }
 
-            // get the slices (all shouuld be the same length)
             let out = out_port.as_mut_slice(ps);
             metronome.process(out);
 
@@ -41,14 +40,19 @@ fn main() {
     // Build and run the UI
     let mut siv = cursive::default();
 
-    let bpm_sender = sender.clone();
-    let bpm_slider = cursive::views::SliderView::horizontal(70).on_change(move |_s, n| {
-        let bpm = 2 * n as u32 + 60;
-        let _ = bpm_sender.try_send(metronome::Control::BeatsPerMinute(bpm));
-    });
+    let bpm_config = config;
+    let bpm_sender = sender;
+    let bpm_slider = SliderView::horizontal(70)
+        .value((config.get().beats_per_minute as usize - 60) / 2)
+        .on_change(move |_s, n| {
+            let mut c = bpm_config.get();
+            c.beats_per_minute = 2 * n as u32 + 60;
+            bpm_config.set(c);
+            let _ = bpm_sender.try_send(c);
+        });
 
     siv.add_layer(
-        cursive::views::Dialog::around(cursive::views::LinearLayout::vertical().child(bpm_slider))
+        Dialog::around(LinearLayout::vertical().child(bpm_slider))
             .title("Metronome")
             .button("Quit", |s| s.quit()),
     );

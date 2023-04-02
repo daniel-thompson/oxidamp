@@ -7,13 +7,24 @@ use crate::*;
 pub enum Pattern {
     Basic4Beat,
     Basic8Beat,
+    FourToTheFloor8Beat,
     Swing8Beat,
     Rock8Beat,
 }
 
-pub enum Control {
-    BeatsPerMinute(u32),
-    Pattern(Pattern),
+#[derive(Clone, Copy, Debug)]
+pub struct DrumMachineConfig {
+    pub beats_per_minute: u32,
+    pub pattern: Pattern,
+}
+
+impl Default for DrumMachineConfig {
+    fn default() -> Self {
+        Self {
+            beats_per_minute: 112,
+            pattern: Pattern::Basic4Beat,
+        }
+    }
 }
 
 const __: u8 = 0;
@@ -41,6 +52,20 @@ const BASIC_8BEAT: Sequence<8> = Sequence {
         CH | BA | __,
         CH | __ | __,
         CH | __ | SN,
+        CH | __ | __,
+    ],
+};
+
+const FLOOR_8BEAT: Sequence<8> = Sequence {
+    divisions_per_beat: 2,
+    pattern: [
+        CH | BA | __,
+        CH | __ | __,
+        CH | BA | SN,
+        CH | __ | __,
+        CH | BA | __,
+        CH | __ | __,
+        CH | BA | SN,
         CH | __ | __,
     ],
 };
@@ -95,7 +120,7 @@ fn lookup_sample(i: usize) -> &'static [i8] {
 }
 
 pub struct DrumMachine {
-    bpm: u32,
+    config: DrumMachineConfig,
     sfreq: i32,
 
     cold_sample: bool,
@@ -118,7 +143,7 @@ pub struct DrumMachine {
 impl Default for DrumMachine {
     fn default() -> Self {
         Self {
-            bpm: 120,
+            config: DrumMachineConfig::default(),
             sfreq: 0,
 
             cold_sample: false,
@@ -143,13 +168,33 @@ impl Default for DrumMachine {
 impl DrumMachine {
     /// Update the state variables based on the current control values.
     fn update(&mut self) {
-        let beats_per_minute = self.bpm;
-        let divisions_per_beat = self.divisions_per_beat;
+        match self.config.pattern {
+            Pattern::Basic4Beat => {
+                self.divisions_per_beat = BASIC_4BEAT.divisions_per_beat;
+                self.pattern = &BASIC_4BEAT.pattern;
+            }
+            Pattern::Basic8Beat => {
+                self.divisions_per_beat = BASIC_8BEAT.divisions_per_beat;
+                self.pattern = &BASIC_8BEAT.pattern;
+            }
+            Pattern::FourToTheFloor8Beat => {
+                self.divisions_per_beat = FLOOR_8BEAT.divisions_per_beat;
+                self.pattern = &FLOOR_8BEAT.pattern;
+            }
+            Pattern::Swing8Beat => {
+                self.divisions_per_beat = SWING_8BEAT.divisions_per_beat;
+                self.pattern = &SWING_8BEAT.pattern;
+            }
+            Pattern::Rock8Beat => {
+                self.divisions_per_beat = ROCK_8BEAT.divisions_per_beat;
+                self.pattern = &ROCK_8BEAT.pattern;
+            }
+        }
 
-        let beats_per_second = beats_per_minute as f32 / 60.0;
+        let beats_per_second = self.config.beats_per_minute as f32 / 60.0;
         let samples_per_second = self.sfreq / 2;
         let samples_per_beat = samples_per_second as f32 / beats_per_second;
-        let samples_per_division = samples_per_beat / divisions_per_beat as f32;
+        let samples_per_division = samples_per_beat / self.divisions_per_beat as f32;
 
         self.division_counter = 0;
         self.division_reload = samples_per_division as i32;
@@ -169,30 +214,12 @@ impl DrumMachine {
         self.update();
     }
 
-    pub fn set_control(&mut self, ctrl: &Control) {
-        match ctrl {
-            Control::BeatsPerMinute(bpm) => {
-                self.bpm = *bpm;
-            }
-            Control::Pattern(pattern) => match pattern {
-                Pattern::Basic4Beat => {
-                    self.divisions_per_beat = BASIC_4BEAT.divisions_per_beat;
-                    self.pattern = &BASIC_4BEAT.pattern;
-                }
-                Pattern::Basic8Beat => {
-                    self.divisions_per_beat = BASIC_8BEAT.divisions_per_beat;
-                    self.pattern = &BASIC_8BEAT.pattern;
-                }
-                Pattern::Swing8Beat => {
-                    self.divisions_per_beat = SWING_8BEAT.divisions_per_beat;
-                    self.pattern = &SWING_8BEAT.pattern;
-                }
-                Pattern::Rock8Beat => {
-                    self.divisions_per_beat = ROCK_8BEAT.divisions_per_beat;
-                    self.pattern = &ROCK_8BEAT.pattern;
-                }
-            },
-        }
+    pub fn config(&self) -> DrumMachineConfig {
+        self.config
+    }
+
+    pub fn set_config(&mut self, config: DrumMachineConfig) {
+        self.config = config;
         self.update();
     }
 

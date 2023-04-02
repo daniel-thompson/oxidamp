@@ -5,8 +5,6 @@ mod gui;
 
 use egui_miniquad::EguiMq;
 use miniquad;
-use oxidamp::drummachine;
-use oxidamp::metronome;
 use oxidamp::prelude::*;
 use std::sync::mpsc;
 
@@ -19,8 +17,9 @@ enum Active {
 
 enum Control {
     Application(Active),
-    DrumMachine(drummachine::Control),
-    Metronome(metronome::Control),
+    Amplifier(AmplifierConfig),
+    DrumMachine(DrumMachineConfig),
+    Metronome(MetronomeConfig),
     Midi(MidiData),
 }
 
@@ -54,22 +53,18 @@ fn main() {
 
     let ctx = AudioContext::new(client.sample_rate() as i32);
 
-    let mut amp_active = true;
+    let mut amp_active = false;
     let mut amp = Amplifier::default();
     amp.setup(&ctx);
 
-    let mut dm_active = true;
+    let mut dm_active = false;
     let mut dm = DrumMachine::default();
     dm.setup(&ctx);
-    dm.set_control(&drummachine::Control::BeatsPerMinute(90));
-    dm.set_control(&drummachine::Control::Pattern(Pattern::Rock8Beat));
     let mut reverb = Reverb::default();
 
     let mut metronome_active = false;
     let mut metronome = Metronome::default();
     metronome.setup(&ctx);
-    metronome.set_control(&metronome::Control::BeatsPerMinute(120));
-    metronome.set_control(&metronome::Control::BeatsPerBar(4));
 
     let mut synth_active = false;
     let mut synth = VoiceBox::<DetunedPair<KarplusStrong>>::default();
@@ -88,17 +83,11 @@ fn main() {
                         Active::Metronome(active) => metronome_active = active,
                         Active::Synth(active) => synth_active = active,
                     },
-                    Control::DrumMachine(ctrl) => dm.set_control(&ctrl),
-                    Control::Metronome(ctrl) => metronome.set_control(&ctrl),
+                    Control::Amplifier(cfg) => amp.set_config(cfg),
+                    Control::DrumMachine(cfg) => dm.set_config(cfg),
+                    Control::Metronome(cfg) => metronome.set_config(cfg),
                     Control::Midi(mididata) => synth.midi(&ctx, &mididata),
                 }
-            }
-
-            if amp_active {
-                let input = amp_in.as_slice(ps);
-                let output = amp_out.as_mut_slice(ps);
-
-                amp.process(input, output);
             }
 
             if dm_active {
@@ -130,6 +119,13 @@ fn main() {
 
                 let outbuf = synth_out.as_mut_slice(ps);
                 synth.process(outbuf);
+            }
+
+            if amp_active {
+                let input = amp_in.as_slice(ps);
+                let output = amp_out.as_mut_slice(ps);
+
+                amp.process(input, output);
             }
 
             jack::Control::Continue
@@ -182,106 +178,116 @@ impl Stage {
     }
 }
 
+#[derive(Default)]
 struct AmplifierApp {
     active: bool,
-    bass: u32,
-    mid: u32,
-    treble: u32,
+    config: AmplifierConfig,
 }
 
 impl AmplifierApp {
     fn new() -> Self {
-        Self {
-            active: true,
-            bass: 50,
-            mid: 50,
-            treble: 50,
-        }
-    }
-
-    fn draw(&mut self, ui: &mut egui::Ui, _ctrl_channel: &ControlSender) {
-        ui.add(egui::Slider::new(&mut self.bass, 0..=100).text("bass"));
-        ui.add(egui::Slider::new(&mut self.mid, 0..=100).text("mid"));
-        ui.add(egui::Slider::new(&mut self.treble, 0..=100).text("treble"));
-    }
-}
-
-struct DrumMachineApp {
-    active: bool,
-    bpm: u32,
-    pattern: Pattern,
-}
-
-impl DrumMachineApp {
-    fn new() -> Self {
-        Self {
-            active: true,
-            bpm: 112,
-            pattern: Pattern::Rock8Beat,
-        }
+        Self::default()
     }
 
     fn draw(&mut self, ui: &mut egui::Ui, ctrl_channel: &ControlSender) {
         if ui
-            .add(egui::Slider::new(&mut self.bpm, 40..=240).text("beats per minute"))
+            .add(egui::Slider::new(&mut self.config.preamp.gain, 0.0..=96.0).text("drive"))
+            .changed()
+            | ui.add(egui::Slider::new(&mut self.config.tonestack.bass, -24.0..=24.0).text("bass"))
+                .changed()
+            | ui.add(egui::Slider::new(&mut self.config.tonestack.mid, -24.0..=24.0).text("mid"))
+                .changed()
+            | ui.add(
+                egui::Slider::new(&mut self.config.tonestack.treble, -24.0..=24.0).text("treble"),
+            )
+            .changed()
+            | ui.add(egui::Slider::new(&mut self.config.tonestack.gain, -24.0..=24.0).text("gain"))
+                .changed()
+        {
+            let _ = ctrl_channel.send(Control::Amplifier(self.config));
+        }
+    }
+}
+
+#[derive(Default)]
+struct DrumMachineApp {
+    active: bool,
+    config: DrumMachineConfig,
+}
+
+impl DrumMachineApp {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn draw(&mut self, ui: &mut egui::Ui, ctrl_channel: &ControlSender) {
+        if ui
+            .add(
+                egui::Slider::new(&mut self.config.beats_per_minute, 40..=240)
+                    .text("beats per minute"),
+            )
             .changed()
         {
-            let _ = ctrl_channel.send(Control::DrumMachine(drummachine::Control::BeatsPerMinute(
-                self.bpm,
-            )));
+            let _ = ctrl_channel.send(Control::DrumMachine(self.config));
         }
 
         egui::ComboBox::from_label("pattern")
-            .selected_text(format!("{:?}", self.pattern))
+            .selected_text(format!("{:?}", self.config.pattern))
             .show_ui(ui, |ui| {
+                let config = &mut self.config;
                 ui.style_mut().wrap = Some(false);
                 ui.set_min_width(60.0);
                 if ui
-                    .selectable_value(&mut self.pattern, Pattern::Basic4Beat, "Basic4Beat")
+                    .selectable_value(&mut config.pattern, Pattern::Basic4Beat, "Basic4Beat")
                     .clicked()
                     || ui
-                        .selectable_value(&mut self.pattern, Pattern::Basic8Beat, "Basic8Beat")
+                        .selectable_value(&mut config.pattern, Pattern::Basic8Beat, "Basic8Beat")
                         .clicked()
                     || ui
-                        .selectable_value(&mut self.pattern, Pattern::Swing8Beat, "Swing8Beat")
+                        .selectable_value(
+                            &mut config.pattern,
+                            Pattern::FourToTheFloor8Beat,
+                            "FourToTheFloor8Beat",
+                        )
                         .clicked()
                     || ui
-                        .selectable_value(&mut self.pattern, Pattern::Rock8Beat, "Rock8Beat")
+                        .selectable_value(&mut config.pattern, Pattern::Swing8Beat, "Swing8Beat")
+                        .clicked()
+                    || ui
+                        .selectable_value(&mut config.pattern, Pattern::Rock8Beat, "Rock8Beat")
                         .clicked()
                 {
-                    let _ = ctrl_channel.send(Control::DrumMachine(
-                        drummachine::Control::BeatsPerMinute(self.bpm),
-                    ));
+                    let _ = ctrl_channel.send(Control::DrumMachine(self.config));
                 }
             });
     }
 }
 
+#[derive(Default)]
 struct MetronomeApp {
     active: bool,
-    bpm: u32,
+    config: MetronomeConfig,
 }
 
 impl MetronomeApp {
     fn new() -> Self {
-        Self {
-            active: false,
-            bpm: 112,
-        }
+        Self::default()
     }
 
     fn draw(&mut self, ui: &mut egui::Ui, ctrl_channel: &ControlSender) {
         if ui
-            .add(egui::Slider::new(&mut self.bpm, 40..=240).text("beats per minute"))
+            .add(
+                egui::Slider::new(&mut self.config.beats_per_minute, 40..=240)
+                    .text("beats per minute"),
+            )
             .changed()
         {
-            let _ = ctrl_channel.send(Control::Metronome(metronome::Control::BeatsPerMinute(
-                self.bpm,
-            )));
+            let _ = ctrl_channel.send(Control::Metronome(self.config));
         }
     }
 }
 
+#[derive(Default)]
 struct SynthApp {
     active: bool,
     tone: Option<u8>,
@@ -289,10 +295,7 @@ struct SynthApp {
 
 impl SynthApp {
     fn new() -> Self {
-        Self {
-            active: false,
-            tone: None,
-        }
+        Self::default()
     }
 
     fn draw(&mut self, ui: &mut egui::Ui, ctrl_channel: &ControlSender) {

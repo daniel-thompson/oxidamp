@@ -4,9 +4,19 @@
 use crate::*;
 use std::collections::VecDeque;
 
-pub enum Control {
-    BeatsPerMinute(u32),
-    BeatsPerBar(u32),
+#[derive(Clone, Copy, Debug)]
+pub struct MetronomeConfig {
+    pub beats_per_minute: u32,
+    pub beats_per_bar: u32,
+}
+
+impl Default for MetronomeConfig {
+    fn default() -> Self {
+        Self {
+            beats_per_minute: 120,
+            beats_per_bar: 4,
+        }
+    }
 }
 
 pub struct Sawtooth {
@@ -47,8 +57,7 @@ const DELAY_DETUNE: usize = 10;
 
 pub struct Metronome {
     sfreq: u32,
-    beats_per_minute: u32,
-    beats_per_bar: u32,
+    config: MetronomeConfig,
 
     delay_buffer: VecDeque<i16>,
     exitation: Sawtooth,
@@ -60,8 +69,7 @@ impl Default for Metronome {
     fn default() -> Self {
         Metronome {
             sfreq: 48000,
-            beats_per_minute: 120,
-            beats_per_bar: 4,
+            config: MetronomeConfig::default(),
 
             delay_buffer: VecDeque::new(),
             exitation: Sawtooth::new((DELAY_FRAMES - (DELAY_DETUNE / 2)) as u32),
@@ -76,15 +84,12 @@ impl Metronome {
         self.sfreq = ctx.sampling_frequency as u32;
     }
 
-    pub fn set_control(&mut self, ctrl: &Control) {
-        match ctrl {
-            Control::BeatsPerMinute(bpm) => {
-                self.beats_per_minute = *bpm;
-            }
-            Control::BeatsPerBar(bpb) => {
-                self.beats_per_bar = *bpb;
-            }
-        }
+    pub fn config(&self) -> MetronomeConfig {
+        self.config
+    }
+    
+    pub fn set_config(&mut self, config: MetronomeConfig) {
+        self.config = config
     }
 }
 
@@ -99,8 +104,8 @@ impl SignalGenerator for Metronome {
                 _ => {}
             }
 
-            self.frames_until_next_beat = self.sfreq * 60 / self.beats_per_minute;
-            self.beat = (self.beat + 1) % self.beats_per_bar;
+            self.frames_until_next_beat = self.sfreq * 60 / self.config.beats_per_minute;
+            self.beat = (self.beat + 1) % self.config.beats_per_bar;
 
             for buf in self.delay_buffer.iter_mut() {
                 *buf = buf.saturating_add(self.exitation.step());
