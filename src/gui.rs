@@ -88,7 +88,7 @@ impl Iterator for PianoKeyIterator {
 }
 
 fn keyboard_ui(ui: &mut egui::Ui, tone: &mut Option<u8>) -> egui::Response {
-    const NUM_KEYS: u8 = 25;
+    const NUM_KEYS: u8 = 49;
 
     let num_white_keys = PianoKeyIterator::new(&Rect::NOTHING, NUM_KEYS)
         .filter(|x| !x.is_black)
