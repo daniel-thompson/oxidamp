@@ -84,6 +84,16 @@ fn fir64<const L: usize>(bench: &mut Bencher) {
     });
 }
 
+fn metronome<const L: usize>(bench: &mut Bencher) {
+    let (ctx, mut _inbuf, mut outbuf) = init::<L>();
+    let mut m = Metronome::default();
+    m.setup(&ctx);
+
+    bench.iter(|| {
+        m.process(&mut outbuf);
+    });
+}
+
 fn preamp<const L: usize>(bench: &mut Bencher) {
     let (ctx, inbuf, mut outbuf) = init::<L>();
     let mut preamp = Preamp::default();
@@ -156,6 +166,8 @@ benchmark_group!(
     fir16::<480>,
     fir64::<1920>,
     fir64::<480>,
+    metronome::<480>,
+    metronome::<1920>,
     preamp::<1920>,
     preamp::<480>,
     reverb::<1920>,
