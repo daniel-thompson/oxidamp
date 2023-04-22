@@ -8,8 +8,8 @@ pub struct KarplusStrong {
     delay: FracDelay<1920>,
     //filter: FIR<2, 3>,
     filter: FirstOrder,
-    seed: u32,
-    noise: u32,
+    noise: WhiteNoise,
+    stimulate: u32,
     gain: f32,
 }
 
@@ -19,8 +19,8 @@ impl Default for KarplusStrong {
             delay: FracDelay::default(),
             //filter: fir2_halfband(),
             filter: FirstOrder::default(),
-            seed: 1,
-            noise: 0,
+            noise: WhiteNoise::new(),
+            stimulate: 0,
             gain: 0.999,
         }
     }
@@ -33,7 +33,7 @@ impl Voice for KarplusStrong {
     }
 
     fn trigger(&mut self) {
-        self.noise = 128;
+        self.stimulate = 128;
         self.gain = 0.999;
     }
 
@@ -49,9 +49,9 @@ impl Voice for KarplusStrong {
 
 impl SignalGenerator for KarplusStrong {
     fn step(&mut self) -> f32 {
-        let mut spl = if self.noise > 0 {
-            self.noise -= 1;
-            frand31(&mut self.seed)
+        let mut spl = if self.stimulate > 0 {
+            self.stimulate -= 1;
+            self.noise.next().unwrap()
         } else {
             0.0
         };

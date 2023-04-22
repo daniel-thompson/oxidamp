@@ -80,6 +80,66 @@ pub fn frand31(seed: &mut u32) -> f32 {
     ((rand31(seed) as f32) / 1073741824.0) - 1.0
 }
 
+#[derive(Debug)]
+pub struct WhiteNoise {
+    state: u32,
+}
+
+impl WhiteNoise {
+    pub fn new() -> Self {
+        Self { state: 1 }
+    }
+}
+
+impl Iterator for WhiteNoise {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        Some(frand31(&mut self.state))
+    }
+}
+
+#[derive(Debug)]
+pub struct PinkNoise {
+    white: WhiteNoise,
+    b: [f32; 7],
+}
+
+impl PinkNoise {
+    pub fn new() -> Self {
+        Self {
+            white: WhiteNoise::new(),
+            b: [0.0; 7],
+        }
+    }
+}
+
+impl Iterator for PinkNoise {
+    type Item = f32;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let white = self.white.next()?;
+
+        self.b[0] = 0.99886 * self.b[0] + white * 0.0555179;
+        self.b[1] = 0.99332 * self.b[1] + white * 0.0750759;
+        self.b[2] = 0.96900 * self.b[2] + white * 0.1538520;
+        self.b[3] = 0.86650 * self.b[3] + white * 0.3104856;
+        self.b[4] = 0.55000 * self.b[4] + white * 0.5329522;
+        self.b[5] = -0.7616 * self.b[5] - white * 0.0168980;
+        let pink = self.b[0]
+            + self.b[1]
+            + self.b[2]
+            + self.b[3]
+            + self.b[4]
+            + self.b[5]
+            + self.b[6]
+            + white * 0.5362;
+        self.b[6] = white * 0.115926;
+
+        Some(pink)
+    }
+}
+
 pub fn check_response(ctx: &AudioContext, f: &mut impl Filter, gfreq: i32, db: f32) -> bool {
     let level = f.stimulate(ctx, gfreq);
     let ok;
