@@ -42,7 +42,7 @@ impl Voice for KarplusStrong {
     }
 
     fn tune(&mut self, ctx: &AudioContext, freq: f32) {
-        let delay = ctx.sampling_frequency as f32 / freq;
+        let delay = (ctx.sampling_frequency as f32 / freq) - 1.20;
         self.delay.setup(ctx, delay);
     }
 }
