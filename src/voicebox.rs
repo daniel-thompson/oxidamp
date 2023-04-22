@@ -138,6 +138,6 @@ macro_rules! voicebox {
 voicebox! {
     4 => VoiceBox4,
     6 => VoiceBox6,
-    8 => VoiceBox8,
-    16 => VoiceBox
+    8 => VoiceBox,
+    16 => VoiceBox16
 }
