@@ -62,6 +62,13 @@ pub trait Filter {
 pub trait SampleBufferExt {
     fn analyse_peak(&self) -> Sample;
     fn analyse_rectify(&self) -> Sample;
+
+    /// Estimate the musical note played in a monophonic buffer.
+    ///
+    /// The buffer is expected to hold roughly one second of audio sampled
+    /// at `ctx.sampling_frequency`. See [crate::tuner::analyse_note] for
+    /// details of the algorithm and its accuracy.
+    fn analyse_note(&self, ctx: &AudioContext) -> NoteAnalysis;
 }
 
 impl SampleBufferExt for [Sample] {
@@ -86,5 +93,9 @@ impl SampleBufferExt for [Sample] {
         }
 
         acc / (self.len() as Sample)
+    }
+
+    fn analyse_note(&self, ctx: &AudioContext) -> NoteAnalysis {
+        crate::tuner::analyse_note(self, ctx)
     }
 }

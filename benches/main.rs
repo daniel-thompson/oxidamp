@@ -144,6 +144,32 @@ fn waveshaper<const L: usize>(bench: &mut Bencher) {
     });
 }
 
+/// Build a one second tone for the tuner benchmarks.
+fn tonebuf(rate: i32, freq: i32) -> (AudioContext, Vec<f32>) {
+    let ctx = AudioContext::new(rate);
+    let mut buf = vec![0.0; rate as usize];
+    let mut sg = SineGenerator::default();
+    sg.setup(&ctx, freq, 1.0);
+    sg.process(&mut buf);
+    (ctx, buf)
+}
+
+fn analyse_note_48k(bench: &mut Bencher) {
+    let (ctx, buf) = tonebuf(48000, 440);
+
+    bench.iter(|| {
+        buf.analyse_note(&ctx);
+    });
+}
+
+fn analyse_note_192k(bench: &mut Bencher) {
+    let (ctx, buf) = tonebuf(192000, 440);
+
+    bench.iter(|| {
+        buf.analyse_note(&ctx);
+    });
+}
+
 //
 // Why 480? It's a both sensible chunk size for low latency use *and* it
 // represents ~10ms of samples at 48000Hz. This dividing the result of this
@@ -156,6 +182,8 @@ benchmark_group!(
     benches,
     amplifier::<1920>,
     amplifier::<480>,
+    analyse_note_48k,
+    analyse_note_192k,
     biquad::<1920>,
     biquad::<480>,
     cabsim::<1920>,

@@ -8,5 +8,6 @@ pub use crate::midi::*;
 pub use crate::reverb::*;
 pub use crate::sbuf::*;
 pub use crate::string::*;
+pub use crate::tuner::*;
 pub use crate::util::*;
 pub use crate::voicebox::*;
