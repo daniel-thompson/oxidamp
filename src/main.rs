@@ -5,6 +5,7 @@ mod gui;
 
 use egui_miniquad::EguiMq;
 use miniquad;
+use oxidamp::jack::PatchBay;
 use oxidamp::prelude::*;
 use std::collections::VecDeque;
 use std::ops::RangeInclusive;
@@ -59,6 +60,21 @@ fn main() {
     let mut synth_out = client
         .register_port("synth_out", jack::AudioOut::default())
         .unwrap();
+
+    // Snapshot the full port names now that they are all registered. The
+    // auto-patch menu item runs on the GUI thread long after `client` has been
+    // handed to the process handler, so it needs the names (and a client
+    // handle) captured up front.
+    let patchbay = PatchBay {
+        synth_out: synth_out.name().unwrap(),
+        amp_in: amp_in.name().unwrap(),
+        tuner_in: tuner_in.name().unwrap(),
+        synth_in: synth_in.name().unwrap(),
+        amp_out: amp_out.name().unwrap(),
+        drums_l: drums_l.name().unwrap(),
+        drums_r: drums_r.name().unwrap(),
+        metronome: metronome_out.name().unwrap(),
+    };
 
     let ctx = AudioContext::new(client.sample_rate() as i32);
 
@@ -163,7 +179,15 @@ fn main() {
     );
 
     // Activate the client, which starts the processing.
-    let active_client = client.activate_async((), process).unwrap();
+    let active_client = Arc::new(client.activate_async((), process).unwrap());
+
+    // The auto-patch menu item runs on the GUI thread but needs the JACK
+    // client. `AsyncClient` is `Send + Sync`, so share it through an `Arc`
+    // rather than teaching the GUI about the process handler's type. The leak
+    // below keeps it alive for the process lifetime either way.
+    let patch_client = Arc::clone(&active_client);
+    let auto_connect: Box<dyn Fn() + Send + Sync> =
+        Box::new(move || patchbay.connect(patch_client.as_client()));
 
     // ... then use the main thread to run the GUI
     let conf = miniquad::conf::Conf {
@@ -174,7 +198,12 @@ fn main() {
         ..Default::default()
     };
     miniquad::start(conf, move || {
-        Box::new(Stage::new(sender, Arc::clone(&tuner_buffer), ctx))
+        Box::new(Stage::new(
+            sender,
+            Arc::clone(&tuner_buffer),
+            ctx,
+            auto_connect,
+        ))
     });
 
     // Deliberately leak the client instead of deactivating it. jack-rs frees
@@ -197,6 +226,9 @@ struct Stage {
     metronome: MetronomeApp,
     synth: SynthApp,
     tuner: TunerApp,
+    /// Makes the standard JACK connections. Supplied by `main`, which owns the
+    /// JACK client.
+    auto_connect: Box<dyn Fn() + Send + Sync>,
 }
 
 impl Stage {
@@ -204,6 +236,7 @@ impl Stage {
         channel: mpsc::SyncSender<Control>,
         tuner_buffer: Arc<Mutex<VecDeque<f32>>>,
         ctx: AudioContext,
+        auto_connect: Box<dyn Fn() + Send + Sync>,
     ) -> Self {
         let mut mq_ctx = miniquad::window::new_rendering_backend();
         let egui_mq = EguiMq::new(&mut *mq_ctx);
@@ -222,6 +255,7 @@ impl Stage {
             metronome: MetronomeApp::new(),
             synth: SynthApp::new(),
             tuner: TunerApp::new(tuner_buffer, ctx),
+            auto_connect,
         }
     }
 }
@@ -585,6 +619,7 @@ impl miniquad::EventHandler for Stage {
             metronome,
             synth,
             tuner,
+            auto_connect,
         } = self;
 
         mq_ctx.clear(Some((1., 1., 1., 1.)), None, None);
@@ -596,6 +631,10 @@ impl miniquad::EventHandler for Stage {
             egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
                 egui::menu::bar(ui, |ui| {
                     ui.menu_button("🎸", |ui| {
+                        if ui.button("Auto-connect ports").clicked() {
+                            auto_connect();
+                            ui.close_menu();
+                        }
                         if ui.button("Organize windows").clicked() {
                             ui.ctx().memory_mut(|mem| mem.reset_areas());
                         }
