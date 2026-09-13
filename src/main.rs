@@ -80,7 +80,7 @@ fn main() {
     metronome.setup(&ctx);
 
     let mut synth_active = false;
-    let mut synth = VoiceBox::<DetunedPair<KarplusStrong>>::default();
+    let mut synth = VoiceBox::<KarplusStrong>::default();
     synth.setup(&ctx);
 
     let mut tuner_active = false;
