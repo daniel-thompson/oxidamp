@@ -72,7 +72,7 @@ fn main() {
 
     let (sender, receiver) = mpsc::sync_channel(16);
 
-    let process = jack::ClosureProcessHandler::new(
+    let process = jack::contrib::ClosureProcessHandler::new(
         move |_: &jack::Client, ps: &jack::ProcessScope| -> jack::Control {
             // handle any pending control updates
             while let Ok(ctrl) = receiver.try_recv() {
@@ -143,12 +143,20 @@ fn main() {
         window_height: 1024,
         ..Default::default()
     };
-    miniquad::start(conf, |mut ctx| Box::new(Stage::new(&mut ctx, sender)));
+    miniquad::start(conf, || Box::new(Stage::new(sender)));
 
-    active_client.deactivate().unwrap();
+    // Deliberately leak the client instead of deactivating it. jack-rs frees
+    // its callback context during deactivate/drop while the notification
+    // callbacks (client_registration, port_registration, ...) remain
+    // registered, so the final "client unregistered" event delivered while
+    // the client is closed then dereferences freed memory and segfaults
+    // (observed with PipeWire's JACK implementation). The process is exiting
+    // anyway, so skip teardown and let the sound server clean up on exit.
+    std::mem::forget(active_client);
 }
 
 struct Stage {
+    mq_ctx: Box<dyn miniquad::RenderingBackend>,
     egui_mq: EguiMq,
     channel: ControlSender,
     settings: bool,
@@ -159,14 +167,16 @@ struct Stage {
 }
 
 impl Stage {
-    fn new(mq_ctx: &mut miniquad::Context, channel: mpsc::SyncSender<Control>) -> Self {
-        let egui_mq = EguiMq::new(mq_ctx);
+    fn new(channel: mpsc::SyncSender<Control>) -> Self {
+        let mut mq_ctx = miniquad::window::new_rendering_backend();
+        let egui_mq = EguiMq::new(&mut *mq_ctx);
         let ctx = egui_mq.egui_ctx();
 
         ctx.set_pixels_per_point(1.5);
         ctx.set_visuals(egui::Visuals::light());
 
         Self {
+            mq_ctx,
             egui_mq,
             channel,
             settings: false,
@@ -235,7 +245,7 @@ impl DrumMachineApp {
             .selected_text(format!("{:?}", self.config.pattern))
             .show_ui(ui, |ui| {
                 let config = &mut self.config;
-                ui.style_mut().wrap = Some(false);
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
                 ui.set_min_width(60.0);
                 if ui
                     .selectable_value(&mut config.pattern, Pattern::Basic4Beat, "Basic4Beat")
@@ -321,15 +331,26 @@ impl SynthApp {
 }
 
 impl miniquad::EventHandler for Stage {
-    fn update(&mut self, _ctx: &mut miniquad::Context) {}
+    fn update(&mut self) {}
 
-    fn draw(&mut self, mq_ctx: &mut miniquad::Context) {
+    fn draw(&mut self) {
+        let Self {
+            mq_ctx,
+            egui_mq,
+            channel,
+            settings,
+            amplifier,
+            drum_machine,
+            metronome,
+            synth,
+        } = self;
+
         mq_ctx.clear(Some((1., 1., 1., 1.)), None, None);
         mq_ctx.begin_default_pass(miniquad::PassAction::clear_color(0.65, 0.70, 0.65, 1.0));
         mq_ctx.end_render_pass();
 
         // Run the UI code:
-        self.egui_mq.run(mq_ctx, |_mq_ctx, ctx| {
+        egui_mq.run(&mut **mq_ctx, |_mq_ctx, ctx| {
             egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
                 egui::menu::bar(ui, |ui| {
                     ui.menu_button("🎸", |ui| {
@@ -343,7 +364,7 @@ impl miniquad::EventHandler for Stage {
                             }
                         }
                     });
-                    egui::widgets::global_dark_light_mode_switch(ui);
+                    egui::widgets::global_theme_preference_switch(ui);
                 });
             });
 
@@ -353,41 +374,40 @@ impl miniquad::EventHandler for Stage {
                 .show(ctx, |ui| {
                     egui::ScrollArea::vertical().show(ui, |ui| {
                         ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
-                            ui.toggle_value(&mut self.settings, "Settings");
+                            ui.toggle_value(settings, "Settings");
                             if ui
-                                .toggle_value(&mut self.amplifier.active, "Amplifier")
+                                .toggle_value(&mut amplifier.active, "Amplifier")
                                 .clicked()
                             {
-                                let _ = self.channel.send(Control::Application(Active::Amplifier(
-                                    self.amplifier.active,
+                                let _ = channel.send(Control::Application(Active::Amplifier(
+                                    amplifier.active,
                                 )));
                             }
                             if ui
-                                .toggle_value(&mut self.drum_machine.active, "Drum Machine")
+                                .toggle_value(&mut drum_machine.active, "Drum Machine")
                                 .clicked()
                             {
-                                let _ = self.channel.send(Control::Application(
-                                    Active::DrumMachine(self.drum_machine.active),
-                                ));
-                            }
-                            if ui
-                                .toggle_value(&mut self.metronome.active, "Metronome")
-                                .clicked()
-                            {
-                                let _ = self.channel.send(Control::Application(Active::Metronome(
-                                    self.metronome.active,
+                                let _ = channel.send(Control::Application(Active::DrumMachine(
+                                    drum_machine.active,
                                 )));
                             }
-                            if ui.toggle_value(&mut self.synth.active, "Synth").clicked() {
-                                let _ = self
-                                    .channel
-                                    .send(Control::Application(Active::Synth(self.synth.active)));
+                            if ui
+                                .toggle_value(&mut metronome.active, "Metronome")
+                                .clicked()
+                            {
+                                let _ = channel.send(Control::Application(Active::Metronome(
+                                    metronome.active,
+                                )));
+                            }
+                            if ui.toggle_value(&mut synth.active, "Synth").clicked() {
+                                let _ =
+                                    channel.send(Control::Application(Active::Synth(synth.active)));
                             }
                         });
                     });
                 });
 
-            if self.settings {
+            if *settings {
                 let mut pixels_per_point = ctx.pixels_per_point();
                 egui::Window::new("Settings").show(ctx, |ui| {
                     let response = ui
@@ -397,96 +417,72 @@ impl miniquad::EventHandler for Stage {
                                 .text("scale"),
                         )
                         .on_hover_text("Physical pixels per logical point");
-                    if response.clicked() || response.drag_released() {
+                    if response.clicked() || response.drag_stopped() {
                         ctx.set_pixels_per_point(pixels_per_point);
                     }
                 });
             }
 
-            if self.amplifier.active {
+            if amplifier.active {
                 egui::Window::new("Amplifier").show(ctx, |ui| {
-                    self.amplifier.draw(ui, &self.channel);
+                    amplifier.draw(ui, channel);
                 });
             }
 
-            if self.drum_machine.active {
+            if drum_machine.active {
                 egui::Window::new("Drum machine").show(ctx, |ui| {
-                    self.drum_machine.draw(ui, &self.channel);
+                    drum_machine.draw(ui, channel);
                 });
             }
 
-            if self.metronome.active {
+            if metronome.active {
                 egui::Window::new("Metronome").show(ctx, |ui| {
-                    self.metronome.draw(ui, &self.channel);
+                    metronome.draw(ui, channel);
                 });
             }
 
-            if self.synth.active {
+            if synth.active {
                 egui::Window::new("synth").show(ctx, |ui| {
-                    self.synth.draw(ui, &self.channel);
+                    synth.draw(ui, channel);
                 });
             }
         });
 
-        self.egui_mq.draw(mq_ctx);
+        egui_mq.draw(&mut **mq_ctx);
 
         mq_ctx.commit_frame();
     }
 
-    fn mouse_motion_event(&mut self, _: &mut miniquad::Context, x: f32, y: f32) {
+    fn mouse_motion_event(&mut self, x: f32, y: f32) {
         self.egui_mq.mouse_motion_event(x, y);
     }
 
-    fn mouse_wheel_event(&mut self, _: &mut miniquad::Context, dx: f32, dy: f32) {
+    fn mouse_wheel_event(&mut self, dx: f32, dy: f32) {
         self.egui_mq.mouse_wheel_event(dx, dy);
     }
 
-    fn mouse_button_down_event(
-        &mut self,
-        ctx: &mut miniquad::Context,
-        mb: miniquad::MouseButton,
-        x: f32,
-        y: f32,
-    ) {
-        self.egui_mq.mouse_button_down_event(ctx, mb, x, y);
+    fn mouse_button_down_event(&mut self, mb: miniquad::MouseButton, x: f32, y: f32) {
+        self.egui_mq.mouse_button_down_event(mb, x, y);
     }
 
-    fn mouse_button_up_event(
-        &mut self,
-        ctx: &mut miniquad::Context,
-        mb: miniquad::MouseButton,
-        x: f32,
-        y: f32,
-    ) {
-        self.egui_mq.mouse_button_up_event(ctx, mb, x, y);
+    fn mouse_button_up_event(&mut self, mb: miniquad::MouseButton, x: f32, y: f32) {
+        self.egui_mq.mouse_button_up_event(mb, x, y);
     }
 
-    fn char_event(
-        &mut self,
-        _ctx: &mut miniquad::Context,
-        character: char,
-        _keymods: miniquad::KeyMods,
-        _repeat: bool,
-    ) {
+    fn char_event(&mut self, character: char, _keymods: miniquad::KeyMods, _repeat: bool) {
         self.egui_mq.char_event(character);
     }
 
     fn key_down_event(
         &mut self,
-        ctx: &mut miniquad::Context,
         keycode: miniquad::KeyCode,
         keymods: miniquad::KeyMods,
         _repeat: bool,
     ) {
-        self.egui_mq.key_down_event(ctx, keycode, keymods);
+        self.egui_mq.key_down_event(keycode, keymods);
     }
 
-    fn key_up_event(
-        &mut self,
-        _ctx: &mut miniquad::Context,
-        keycode: miniquad::KeyCode,
-        keymods: miniquad::KeyMods,
-    ) {
+    fn key_up_event(&mut self, keycode: miniquad::KeyCode, keymods: miniquad::KeyMods) {
         self.egui_mq.key_up_event(keycode, keymods);
     }
 }

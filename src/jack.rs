@@ -8,7 +8,9 @@ impl jack::NotificationHandler for Notifications {
         println!("jack: thread init");
     }
 
-    fn shutdown(&mut self, status: jack::ClientStatus, reason: &str) {
+    // SAFETY: called from the JACK server thread during shutdown; the body
+    // only prints, so it upholds the async-signal-safety contract in practice.
+    unsafe fn shutdown(&mut self, status: jack::ClientStatus, reason: &str) {
         println!(
             "jack: shutdown with status {:?} because \"{}\"",
             status, reason

@@ -21,7 +21,7 @@ fn main() {
     let mut amp = Amplifier::default();
     amp.setup(&ctx);
 
-    let process = jack::ClosureProcessHandler::new(
+    let process = jack::contrib::ClosureProcessHandler::new(
         move |_: &jack::Client, ps: &jack::ProcessScope| -> jack::Control {
             // get the slices (all shouuld be the same length)
             let inbuf = in_port.as_slice(ps);
@@ -47,5 +47,9 @@ fn main() {
     let mut user_input = String::new();
     std::io::stdin().read_line(&mut user_input).ok();
 
-    active_client.deactivate().unwrap();
+    // Leak the client on exit rather than deactivating it: jack-rs frees its
+    // callback context during deactivate/drop while notification callbacks
+    // stay registered, so the final "client unregistered" event then hits
+    // freed memory and segfaults (seen with PipeWire). See src/main.rs.
+    std::mem::forget(active_client);
 }

@@ -9,10 +9,10 @@ use oxidamp::*;
 use rand::prelude::*;
 
 fn randbuf<const L: usize>() -> [f32; L] {
-    let mut rng = thread_rng();
+    let mut rng = rand::rng();
     let mut inbuf = [0.0_f32; L];
     for i in &mut inbuf {
-        *i = rng.gen_range(-1.0..1.0);
+        *i = rng.random_range(-1.0..1.0);
     }
     inbuf
 }

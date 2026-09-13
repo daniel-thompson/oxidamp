@@ -135,7 +135,13 @@ fn keyboard_ui(ui: &mut egui::Ui, tone: &mut Option<u8>) -> egui::Response {
                 ui.style().noninteractive().fg_stroke
             };
 
-            painter.rect(rect.bounding_box, 0.0, color, stroke);
+            painter.rect(
+                rect.bounding_box,
+                0.0,
+                color,
+                stroke,
+                egui::StrokeKind::Inside,
+            );
         }
     }
 

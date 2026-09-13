@@ -3,7 +3,7 @@
 
 use cursive::views::*;
 use oxidamp::prelude::*;
-use std::{cell::Cell, rc::Rc, sync::mpsc};
+use std::sync::{mpsc, Arc, Mutex};
 
 fn main() {
     let (client, _status) =
@@ -23,12 +23,12 @@ fn main() {
         beats_per_minute: 90,
         pattern: Pattern::Rock8Beat,
     });
-    let config = Rc::new(Cell::new(dm.config()));
+    let config = Arc::new(Mutex::new(dm.config()));
     let mut reverb = Reverb::default();
 
-    let (sender, receiver) = mpsc::sync_channel(16);
+    let (sender, receiver) = mpsc::channel();
 
-    let process = jack::ClosureProcessHandler::new(
+    let process = jack::contrib::ClosureProcessHandler::new(
         move |_: &jack::Client, ps: &jack::ProcessScope| -> jack::Control {
             // handle any pending control updates
             while let Ok(cfg) = receiver.try_recv() {
@@ -59,24 +59,24 @@ fn main() {
     // Build and run the UI
     let mut siv = cursive::default();
 
-    let bpm_config = config.clone();
+    let bpm_config = Arc::clone(&config);
     let bpm_sender = sender.clone();
     let bpm_slider = SliderView::horizontal(70)
-        .value((config.get().beats_per_minute as usize - 60) / 2)
+        .value((config.lock().unwrap().beats_per_minute as usize - 60) / 2)
         .on_change(move |_s, n| {
-            let mut c = bpm_config.get();
+            let mut c = bpm_config.lock().unwrap().clone();
             c.beats_per_minute = 2 * n as u32 + 60;
-            bpm_config.set(c);
-            let _ = bpm_sender.try_send(c);
+            *bpm_config.lock().unwrap() = c;
+            let _ = bpm_sender.send(c);
         });
 
-    let pattern_config = config;
+    let pattern_config = Arc::clone(&config);
     let pattern_sender = sender;
     let mut pattern = SelectView::new().on_select(move |_s, n| {
-        let mut c = pattern_config.get();
+        let mut c = pattern_config.lock().unwrap().clone();
         c.pattern = *n;
-        pattern_config.set(c);
-        let _ = pattern_sender.try_send(c);
+        *pattern_config.lock().unwrap() = c;
+        let _ = pattern_sender.send(c);
     });
     pattern.add_item("4 beat", Pattern::Basic4Beat);
     pattern.add_item("8 beat", Pattern::Basic8Beat);
@@ -92,5 +92,9 @@ fn main() {
 
     siv.run();
 
-    active_client.deactivate().unwrap();
+    // Leak the client on exit rather than deactivating it: jack-rs frees its
+    // callback context during deactivate/drop while notification callbacks
+    // stay registered, so the final "client unregistered" event then hits
+    // freed memory and segfaults (seen with PipeWire). See src/main.rs.
+    std::mem::forget(active_client);
 }
