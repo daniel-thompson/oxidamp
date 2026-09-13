@@ -428,7 +428,7 @@ impl SynthApp {
 
             changed |= vertical_slider(ui, &mut self.config.position, 0.02..=0.98, "pluck");
             changed |= vertical_slider(ui, &mut self.config.hardness, 0.0..=1.0, "pick");
-            changed |= vertical_slider(ui, &mut self.config.gain, 0.90..=0.9995, "sustain");
+            changed |= vertical_slider(ui, &mut self.config.sustain, 0.05..=4.0, "sustain");
 
             // Velocity is per note, so it is not part of the config sent to the
             // audio thread; it is applied to the keyboard's note-on events.

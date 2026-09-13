@@ -5,7 +5,7 @@
 //! piano range (MIDI 21..=108, i.e. A0..C8).
 //!
 //! Each note is excited and then held at a sustained level using
-//! [KarplusStrong::set_gain] so that it lasts long enough to be analysed. The
+//! [KarplusStrong::set_sustain] so that it lasts long enough to be analysed. The
 //! resonator's DC mode is removed with a [DCBlocker] because it otherwise
 //! swamps the spectrum of the high notes.
 //!
@@ -126,7 +126,7 @@ fn main() {
         ks.setup(&ctx);
         ks.tune(&ctx, target as f32);
         ks.trigger(1.0);
-        ks.set_gain(0.99999);
+        ks.set_sustain(8.0);
         for s in raw.iter_mut() {
             *s = ks.step();
         }
