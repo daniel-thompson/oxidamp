@@ -6,13 +6,17 @@ mod gui;
 use egui_miniquad::EguiMq;
 use miniquad;
 use oxidamp::prelude::*;
+use std::collections::VecDeque;
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant};
 
 enum Active {
     Amplifier(bool),
     DrumMachine(bool),
     Metronome(bool),
     Synth(bool),
+    Tuner(bool),
 }
 
 enum Control {
@@ -31,6 +35,9 @@ fn main() {
 
     let amp_in = client
         .register_port("amp_in", jack::AudioIn::default())
+        .unwrap();
+    let tuner_in = client
+        .register_port("tuner_in", jack::AudioIn::default())
         .unwrap();
     let mut amp_out = client
         .register_port("amp", jack::AudioOut::default())
@@ -53,6 +60,12 @@ fn main() {
 
     let ctx = AudioContext::new(client.sample_rate() as i32);
 
+    // The tuner needs a whole second of audio to analyse. The audio thread
+    // only copies samples into this ring buffer; the (much slower) analysis
+    // runs on the GUI thread.
+    let tuner_buffer = Arc::new(Mutex::new(VecDeque::<f32>::new()));
+    let audio_tuner_buffer = Arc::clone(&tuner_buffer);
+
     let mut amp_active = false;
     let mut amp = Amplifier::default();
     amp.setup(&ctx);
@@ -70,6 +83,8 @@ fn main() {
     let mut synth = VoiceBox::<DetunedPair<KarplusStrong>>::default();
     synth.setup(&ctx);
 
+    let mut tuner_active = false;
+
     let (sender, receiver) = mpsc::sync_channel(16);
 
     let process = jack::contrib::ClosureProcessHandler::new(
@@ -82,6 +97,7 @@ fn main() {
                         Active::DrumMachine(active) => dm_active = active,
                         Active::Metronome(active) => metronome_active = active,
                         Active::Synth(active) => synth_active = active,
+                        Active::Tuner(active) => tuner_active = active,
                     },
                     Control::Amplifier(cfg) => amp.set_config(cfg),
                     Control::DrumMachine(cfg) => dm.set_config(cfg),
@@ -128,6 +144,17 @@ fn main() {
                 amp.process(input, output);
             }
 
+            if tuner_active {
+                let input = tuner_in.as_slice(ps);
+                if let Ok(mut buf) = audio_tuner_buffer.try_lock() {
+                    buf.extend(input.iter().copied());
+                    let cap = ctx.sampling_frequency as usize;
+                    while buf.len() > cap {
+                        buf.pop_front();
+                    }
+                }
+            }
+
             jack::Control::Continue
         },
     );
@@ -143,7 +170,9 @@ fn main() {
         window_height: 1024,
         ..Default::default()
     };
-    miniquad::start(conf, || Box::new(Stage::new(sender)));
+    miniquad::start(conf, move || {
+        Box::new(Stage::new(sender, Arc::clone(&tuner_buffer), ctx))
+    });
 
     // Deliberately leak the client instead of deactivating it. jack-rs frees
     // its callback context during deactivate/drop while the notification
@@ -164,16 +193,21 @@ struct Stage {
     drum_machine: DrumMachineApp,
     metronome: MetronomeApp,
     synth: SynthApp,
+    tuner: TunerApp,
 }
 
 impl Stage {
-    fn new(channel: mpsc::SyncSender<Control>) -> Self {
+    fn new(
+        channel: mpsc::SyncSender<Control>,
+        tuner_buffer: Arc<Mutex<VecDeque<f32>>>,
+        ctx: AudioContext,
+    ) -> Self {
         let mut mq_ctx = miniquad::window::new_rendering_backend();
         let egui_mq = EguiMq::new(&mut *mq_ctx);
-        let ctx = egui_mq.egui_ctx();
+        let ctx_egui = egui_mq.egui_ctx();
 
-        ctx.set_pixels_per_point(1.5);
-        ctx.set_visuals(egui::Visuals::light());
+        ctx_egui.set_pixels_per_point(1.5);
+        ctx_egui.set_visuals(egui::Visuals::light());
 
         Self {
             mq_ctx,
@@ -184,6 +218,7 @@ impl Stage {
             drum_machine: DrumMachineApp::new(),
             metronome: MetronomeApp::new(),
             synth: SynthApp::new(),
+            tuner: TunerApp::new(tuner_buffer, ctx),
         }
     }
 }
@@ -330,6 +365,115 @@ impl SynthApp {
     }
 }
 
+/// Turn a MIDI note number into a name such as `A4`.
+fn note_name(note: u8) -> String {
+    const NAMES: [&str; 12] = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
+    let octave = note as i32 / 12 - 1;
+    format!("{}{}", NAMES[(note % 12) as usize], octave)
+}
+
+struct TunerApp {
+    active: bool,
+    buffer: Arc<Mutex<VecDeque<f32>>>,
+    ctx: AudioContext,
+    result: Option<NoteAnalysis>,
+    last_analysis: Instant,
+}
+
+impl TunerApp {
+    /// The analysis is comparatively expensive, so it is only run a few
+    /// times per second. That is still far more often than a human can
+    /// usefully read the display.
+    const ANALYSIS_PERIOD: Duration = Duration::from_millis(100);
+
+    fn new(buffer: Arc<Mutex<VecDeque<f32>>>, ctx: AudioContext) -> Self {
+        Self {
+            active: false,
+            buffer,
+            ctx,
+            result: None,
+            last_analysis: Instant::now(),
+        }
+    }
+
+    /// Forget any buffered audio, e.g. when the tuner is switched on.
+    fn reset(&mut self) {
+        if let Ok(mut buf) = self.buffer.lock() {
+            buf.clear();
+        }
+        self.result = None;
+    }
+
+    fn analyse(&mut self) {
+        if self.last_analysis.elapsed() < Self::ANALYSIS_PERIOD {
+            return;
+        }
+        self.last_analysis = Instant::now();
+
+        // Take a snapshot of the buffer so the audio thread is not blocked
+        // while the note is analysed.
+        let snapshot = match self.buffer.lock() {
+            Ok(buf) => {
+                if buf.len() < self.ctx.sampling_frequency as usize {
+                    return;
+                }
+                buf.iter().copied().collect::<Vec<f32>>()
+            }
+            Err(_) => return,
+        };
+
+        self.result = Some(snapshot.analyse_note(&self.ctx));
+    }
+
+    fn draw(&mut self, ui: &mut egui::Ui) {
+        self.analyse();
+
+        let Some(result) = self.result else {
+            ui.label("Listening...");
+            return;
+        };
+
+        ui.horizontal(|ui| {
+            ui.label(
+                egui::RichText::new(note_name(result.note))
+                    .size(36.0)
+                    .strong(),
+            );
+            ui.vertical(|ui| {
+                ui.label(format!("{:.2} Hz", result.frequency));
+                ui.label(format!("{:+.1} cents", result.cents));
+            });
+        });
+
+        // A simple needle showing the deviation from the nearest note.
+        let bg = ui.visuals().extreme_bg_color;
+        let fg = ui.visuals().weak_text_color();
+        let (rect, _) = ui.allocate_exact_size(egui::vec2(240.0, 24.0), egui::Sense::hover());
+        let painter = ui.painter();
+        painter.rect_filled(rect, 0.0, bg);
+
+        let center = rect.center().x;
+        painter.line_segment(
+            [
+                egui::pos2(center, rect.top()),
+                egui::pos2(center, rect.bottom()),
+            ],
+            egui::Stroke::new(1.0_f32, fg),
+        );
+
+        let clamped = result.cents.clamp(-50.0, 50.0);
+        let x = center + (clamped / 50.0) * (rect.width() / 2.0);
+        let color = if result.cents.abs() < 5.0 {
+            egui::Color32::from_rgb(0x2e, 0x8b, 0x57)
+        } else {
+            egui::Color32::from_rgb(0xc0, 0x39, 0x2b)
+        };
+        painter.circle_filled(egui::pos2(x, rect.center().y), 6.0, color);
+    }
+}
+
 impl miniquad::EventHandler for Stage {
     fn update(&mut self) {}
 
@@ -343,6 +487,7 @@ impl miniquad::EventHandler for Stage {
             drum_machine,
             metronome,
             synth,
+            tuner,
         } = self;
 
         mq_ctx.clear(Some((1., 1., 1., 1.)), None, None);
@@ -403,6 +548,13 @@ impl miniquad::EventHandler for Stage {
                                 let _ =
                                     channel.send(Control::Application(Active::Synth(synth.active)));
                             }
+                            if ui.toggle_value(&mut tuner.active, "Tuner").clicked() {
+                                if tuner.active {
+                                    tuner.reset();
+                                }
+                                let _ =
+                                    channel.send(Control::Application(Active::Tuner(tuner.active)));
+                            }
                         });
                     });
                 });
@@ -444,6 +596,12 @@ impl miniquad::EventHandler for Stage {
             if synth.active {
                 egui::Window::new("synth").show(ctx, |ui| {
                     synth.draw(ui, channel);
+                });
+            }
+
+            if tuner.active {
+                egui::Window::new("Tuner").show(ctx, |ui| {
+                    tuner.draw(ui);
                 });
             }
         });

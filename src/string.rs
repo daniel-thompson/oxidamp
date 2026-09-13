@@ -26,6 +26,17 @@ impl Default for KarplusStrong {
     }
 }
 
+impl KarplusStrong {
+    /// Set the loop gain.
+    ///
+    /// The gain is applied on every sample and controls how quickly the
+    /// string decays; values closer to 1.0 sustain for longer. [Voice::trigger]
+    /// resets the gain, so call this afterwards to override it.
+    pub fn set_gain(&mut self, gain: f32) {
+        self.gain = gain;
+    }
+}
+
 impl Voice for KarplusStrong {
     fn setup(&mut self, ctx: &AudioContext) {
         self.delay.setup(ctx, 120.0);
@@ -42,7 +53,11 @@ impl Voice for KarplusStrong {
     }
 
     fn tune(&mut self, ctx: &AudioContext, freq: f32) {
-        let delay = (ctx.sampling_frequency as f32 / freq) - 1.20;
+        // The loop is delay + filter. The first order low pass runs at
+        // sampling_frequency / 4 which makes it a simple two tap average with
+        // a group delay of half a sample, so the delay line itself must be
+        // half a sample shorter than the desired period.
+        let delay = (ctx.sampling_frequency as f32 / freq) - 0.5;
         self.delay.setup(ctx, delay);
     }
 }

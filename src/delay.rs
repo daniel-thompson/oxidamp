@@ -32,10 +32,10 @@ impl<const L: usize> Delay<L> {
     }
 
     fn double_peek(&self) -> f32 {
-        if self.extract_from > L - 2 {
+        if self.extract_from + 1 >= L {
             self.buf[0]
         } else {
-            self.buf[self.extract_from]
+            self.buf[self.extract_from + 1]
         }
     }
 
