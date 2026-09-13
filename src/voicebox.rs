@@ -6,7 +6,10 @@ use std::num::Wrapping;
 
 pub trait Voice {
     fn setup(&mut self, ctx: &AudioContext);
-    fn trigger(&mut self);
+
+    /// Start a note at the given velocity, normalised to `0.0..=1.0`.
+    fn trigger(&mut self, velocity: f32);
+
     fn mute(&mut self);
     fn tune(&mut self, ctx: &AudioContext, freq: f32);
 }
@@ -23,9 +26,9 @@ impl<T: Voice> Voice for DetunedPair<T> {
         }
     }
 
-    fn trigger(&mut self) {
+    fn trigger(&mut self, velocity: f32) {
         for v in &mut self.voice {
-            v.trigger();
+            v.trigger(velocity);
         }
     }
 
@@ -62,6 +65,13 @@ macro_rules! voicebox {
             pub fn setup(&mut self, ctx: &AudioContext) {
                 for voice in &mut self.voices {
                     voice.setup(ctx);
+                }
+            }
+
+            /// Apply `f` to every voice, e.g. to broadcast a config change.
+            pub fn for_each(&mut self, mut f: impl FnMut(&mut T)) {
+                for voice in &mut self.voices {
+                    f(voice);
                 }
             }
 
@@ -106,7 +116,7 @@ macro_rules! voicebox {
                     MidiData::NoteOn(note) => {
                         let voice = self.note_on(note.note);
                         voice.tune(ctx, note.freq());
-                        voice.trigger();
+                        voice.trigger(note.velocity as f32 / 127.0);
                     }
                     MidiData::NoteOff(note) => {
                         let voice = self.note_off(note.note);

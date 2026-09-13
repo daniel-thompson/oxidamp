@@ -125,7 +125,7 @@ fn main() {
         let mut ks = KarplusStrong::default();
         ks.setup(&ctx);
         ks.tune(&ctx, target as f32);
-        ks.trigger();
+        ks.trigger(1.0);
         ks.set_gain(0.99999);
         for s in raw.iter_mut() {
             *s = ks.step();

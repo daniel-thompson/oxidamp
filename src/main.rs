@@ -7,6 +7,7 @@ use egui_miniquad::EguiMq;
 use miniquad;
 use oxidamp::prelude::*;
 use std::collections::VecDeque;
+use std::ops::RangeInclusive;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -24,6 +25,7 @@ enum Control {
     Amplifier(AmplifierConfig),
     DrumMachine(DrumMachineConfig),
     Metronome(MetronomeConfig),
+    Synth(SynthConfig),
     Midi(MidiData),
 }
 
@@ -102,6 +104,7 @@ fn main() {
                     Control::Amplifier(cfg) => amp.set_config(cfg),
                     Control::DrumMachine(cfg) => dm.set_config(cfg),
                     Control::Metronome(cfg) => metronome.set_config(cfg),
+                    Control::Synth(cfg) => synth.for_each(|v| v.set_config(cfg)),
                     Control::Midi(mididata) => synth.midi(&ctx, &mididata),
                 }
             }
@@ -223,6 +226,67 @@ impl Stage {
     }
 }
 
+/// A vertical slider with its value and name centred underneath.
+///
+/// egui wraps a slider in its own `Ui` laid out with `Align::Min`, and that
+/// inner `Ui` inherits the parent's *available* rect (which starts at the
+/// parent's left edge). So the track is placed at the left no matter how the
+/// surrounding column is aligned. Giving the slider a max_rect exactly as wide
+/// as the track makes that internal left alignment coincide with the centre of
+/// the column.
+fn vertical_slider(
+    ui: &mut egui::Ui,
+    value: &mut f32,
+    range: RangeInclusive<f32>,
+    name: &str,
+) -> bool {
+    const COLUMN_WIDTH: f32 = 84.0;
+
+    // Drag a full sweep over roughly 200 points, matching the feel of the
+    // built-in value box.
+    let speed = ((*range.end() - *range.start()) / 200.0) as f64;
+    let slider_range = range.clone();
+
+    // The same track thickness the slider computes for itself.
+    let thickness = ui
+        .text_style_height(&egui::TextStyle::Body)
+        .max(ui.spacing().interact_size.y);
+    let height = ui.spacing().slider_width + 56.0;
+
+    let mut changed = false;
+    ui.allocate_ui_with_layout(
+        egui::vec2(COLUMN_WIDTH, height),
+        egui::Layout::top_down(egui::Align::Center),
+        |ui| {
+            ui.allocate_ui_with_layout(
+                egui::vec2(thickness, ui.spacing().slider_width),
+                egui::Layout::top_down(egui::Align::Center),
+                |ui| {
+                    changed = ui
+                        .add(
+                            egui::Slider::new(value, slider_range)
+                                .vertical()
+                                .show_value(false),
+                        )
+                        .changed();
+                },
+            );
+
+            changed |= ui
+                .add(
+                    egui::DragValue::new(value)
+                        .range(range)
+                        .speed(speed)
+                        .max_decimals(4),
+                )
+                .changed();
+            ui.label(name);
+        },
+    );
+
+    changed
+}
+
 #[derive(Default)]
 struct AmplifierApp {
     active: bool,
@@ -235,20 +299,25 @@ impl AmplifierApp {
     }
 
     fn draw(&mut self, ui: &mut egui::Ui, ctrl_channel: &ControlSender) {
-        if ui
-            .add(egui::Slider::new(&mut self.config.preamp.gain, 0.0..=96.0).text("drive"))
-            .changed()
-            | ui.add(egui::Slider::new(&mut self.config.tonestack.bass, -24.0..=24.0).text("bass"))
-                .changed()
-            | ui.add(egui::Slider::new(&mut self.config.tonestack.mid, -24.0..=24.0).text("mid"))
-                .changed()
-            | ui.add(
-                egui::Slider::new(&mut self.config.tonestack.treble, -24.0..=24.0).text("treble"),
-            )
-            .changed()
-            | ui.add(egui::Slider::new(&mut self.config.tonestack.gain, -24.0..=24.0).text("gain"))
-                .changed()
-        {
+        let mut changed = false;
+
+        ui.horizontal(|ui| {
+            // For vertical sliders this is the track height.
+            ui.spacing_mut().slider_width = 120.0;
+
+            changed |= vertical_slider(ui, &mut self.config.preamp.gain, 0.0..=96.0, "drive");
+            changed |= vertical_slider(ui, &mut self.config.tonestack.bass, -24.0..=24.0, "bass");
+            changed |= vertical_slider(ui, &mut self.config.tonestack.mid, -24.0..=24.0, "mid");
+            changed |= vertical_slider(
+                ui,
+                &mut self.config.tonestack.treble,
+                -24.0..=24.0,
+                "treble",
+            );
+            changed |= vertical_slider(ui, &mut self.config.tonestack.gain, -24.0..=24.0, "gain");
+        });
+
+        if changed {
             let _ = ctrl_channel.send(Control::Amplifier(self.config));
         }
     }
@@ -336,28 +405,56 @@ impl MetronomeApp {
 struct SynthApp {
     active: bool,
     tone: Option<u8>,
+    config: SynthConfig,
+    /// Velocity used for notes played on the on-screen keyboard. Drives the
+    /// strike displacement of the pluck.
+    velocity: f32,
 }
 
 impl SynthApp {
     fn new() -> Self {
-        Self::default()
+        Self {
+            velocity: 0.8,
+            ..Self::default()
+        }
     }
 
     fn draw(&mut self, ui: &mut egui::Ui, ctrl_channel: &ControlSender) {
+        let mut changed = false;
+
+        ui.horizontal(|ui| {
+            // For vertical sliders this is the track height.
+            ui.spacing_mut().slider_width = 120.0;
+
+            changed |= vertical_slider(ui, &mut self.config.position, 0.02..=0.98, "pluck");
+            changed |= vertical_slider(ui, &mut self.config.hardness, 0.0..=1.0, "pick");
+            changed |= vertical_slider(ui, &mut self.config.gain, 0.90..=0.9995, "sustain");
+
+            // Velocity is per note, so it is not part of the config sent to the
+            // audio thread; it is applied to the keyboard's note-on events.
+            let _ = vertical_slider(ui, &mut self.velocity, 0.0..=1.0, "strike");
+        });
+
+        if changed {
+            let _ = ctrl_channel.send(Control::Synth(self.config));
+        }
+
         let mut tone = None;
         ui.add(gui::keyboard(&mut tone));
 
         // generate the appropriate midi events
         if self.tone != tone {
+            let velocity = (self.velocity.clamp(0.0, 1.0) * 127.0).round() as u8;
+
             if let Some(tone) = self.tone {
-                let note = MidiNote::new(tone + 36, 127);
+                let note = MidiNote::new(tone + 36, velocity);
                 let note_off = MidiData::NoteOff(note);
                 let _ = ctrl_channel.send(Control::Midi(note_off));
             }
 
             self.tone = tone;
             if let Some(tone) = tone {
-                let note = MidiNote::new(tone + 36, 127);
+                let note = MidiNote::new(tone + 36, velocity);
                 let note_on = MidiData::NoteOn(note);
                 let _ = ctrl_channel.send(Control::Midi(note_on));
             }
